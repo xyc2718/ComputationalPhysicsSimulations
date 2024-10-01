@@ -151,7 +151,7 @@ struct Interaction{F1, F2, F3, F4}
 
         # 定义截断势能函数
         function cutenerge(r::Float64)
-            nr = r
+            nr = abs(r)
             if nr > cutoff
                 return 0.0
             elseif nr < cutoff - cutrg
@@ -180,4 +180,92 @@ struct Interaction{F1, F2, F3, F4}
         new{F1, F2, typeof(cutenerge), typeof(cutforce)}(energe, force, cutenerge, cutforce, cutoff, cutrg)
     end
 end
+
+
+"""
+计算晶胞中i,j原子之间的相互作用能
+:param cell: 晶胞
+:param interaction: 相互作用
+:param i,j: 原子序号
+:param ifnormize: 是否归一化，默认为 true,将用配位数对能量进行归一化
+:param maxiter: 最大迭代次数，默认为 -1,将自动计算
+:param tol: 误差，默认为 1e-3 用于判断div 0错误
+"""
+function cell_energeij(cell::UnitCell,interaction::Interaction,i::Int,j::Int;ifnormlize::Bool=true,maxiter::Int=-1,tol::Float64=1e-3)
+
+    cutoff=interaction.cutoff
+    atomi=cell.atoms[i]
+    atomj=cell.atoms[j]
+    a,b,c=cell.copy
+    if maxiter==-1
+        maxiter=Int(ceil(cutoff/minimum((cell.lattice_vectors*Vector([1,1,1])))))+1
+    end
+    cni=atomi.cn
+    rij=atomj.position-atomi.position
+    rij_lt=cell.lattice_vectors*rij
+
+    energe=-interaction.cutenerge(norm(rij_lt))
+    for ci in 0:maxiter
+        for bi in 0:maxiter
+            for ai in 0:maxiter
+                rij=atomj.position-atomi.position+ai*Vector([a,0,0])+bi*Vector([0,b,0])+ci*Vector([0,0,c])
+                rij_lt=cell.lattice_vectors*rij
+                r=norm(rij_lt)
+        
+                if r>cutoff
+                    break
+                end
+                if r<tol
+                    continue
+                end
+                energe+=interaction.cutenerge(r)
+            end
+        
+        end
+
+    end
+    for ci in 0:-1:-maxiter
+        for bi in 0:-1:-maxiter
+            for ai in 0:-1:-maxiter
+                rij=atomj.position-atomi.position+ai*Vector([a,0,0])+bi*Vector([0,b,0])+ci*Vector([0,0,c])
+                rij_lt=cell.lattice_vectors*rij
+                r=norm(rij_lt)
+                if r>cutoff
+                    break
+                end
+                if r<tol
+                    continue
+                end
+                energe+=interaction.cutenerge(r)
+            end
+        end
+
+    end
+    if ifnormlize
+        energe=energe/cni
+    end
+    return energe
+end
+
+"""
+计算晶胞的总能量
+:param cell: 晶胞
+:param interaction: 相互作用
+:param ifnormize: 是否归一化，默认为 true,将用配位数对能量进行归一化
+:param maxiter: 最大迭代次数，默认为 -1,将自动计算
+:param tol: 误差，默认为 1e-3 用于判断div 0错误
+"""
+function cell_energe(cell::UnitCell,interaction::Interaction;ifnormlize::Bool=true,maxiter::Int=-1,tol::Float64=1e-3)
+    energe=0.0
+    for i in 1:length(cell.atoms)
+        for j in 1:length(cell.atoms)
+            if i!=j
+                energe+=cell_energeij(cell,interaction,i,j,ifnormlize=ifnormlize,maxiter=maxiter,tol=tol)
+            end
+        end
+    end
+    return energe
+end
+
+
 end
