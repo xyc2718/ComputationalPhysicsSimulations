@@ -189,58 +189,64 @@ end
 :param maxiter: 最大迭代次数，默认为 -1,将自动计算
 :param tol: 误差，默认为 1e-3 用于判断div 0错误
 """
-function cell_energeij(cell::UnitCell,interaction::Interaction,i::Int,j::Int;ifnormalize::Bool=true,maxiter::Int=-1,tol::Float64=1e-3)
-    cutoff=interaction.cutoff
-    atomi=cell.atoms[i]
-    atomj=cell.atoms[j]
-    a,b,c=cell.copy
-    if maxiter==-1
-        maxiter=Int(ceil(cutoff/minimum((cell.lattice_vectors*Vector([1,1,1])))))+1
-    end
-    cni=atomi.cn
-    rij=atomj.position-atomi.position
-    rij_lt=cell.lattice_vectors*rij
 
-    energe=-interaction.cutenerge(norm(rij_lt))
+function cell_energeij(cell::UnitCell, interaction::Interaction, i::Int, j::Int; ifnormalize::Bool=true, maxiter::Int=-1, tol::Float64=1e-3)
+    cutoff = interaction.cutoff
+    atomi = cell.atoms[i]
+    atomj = cell.atoms[j]
+    a, b, c = cell.copy
+    if maxiter == -1
+        maxiter = Int(ceil(cutoff / minimum(cell.lattice_vectors * @SVector [1, 1, 1]))) + 1
+    end
+    cni = atomi.cn
+    base_rij = SVector{3}(atomj.position - atomi.position)
+
+    # 预先计算这些向量
+    a_vector = @SVector [a, 0, 0]
+    b_vector = @SVector [0, b, 0]
+    c_vector = @SVector [0, 0, c]
+
+    energe = -interaction.cutenerge(norm(cell.lattice_vectors * base_rij))
+    
     for ci in 0:maxiter
         for bi in 0:maxiter
             for ai in 0:maxiter
-                rij=atomj.position-atomi.position+ai*Vector([a,0,0])+bi*Vector([0,b,0])+ci*Vector([0,0,c])
-                rij_lt=cell.lattice_vectors*rij
-                r=norm(rij_lt)
+                temp_rij = base_rij .+ ai * a_vector .+ bi * b_vector .+ ci * c_vector
+                temp_rij_lt = cell.lattice_vectors * temp_rij
+                r = norm(temp_rij_lt)
         
-                if r>cutoff
+                if r > cutoff
                     break
                 end
-                if r<tol
+                if r < tol
                     continue
                 end
-                energe+=interaction.cutenerge(r)
+                energe += interaction.cutenerge(r)
             end
-        
         end
-
     end
+
     for ci in 0:-1:-maxiter
         for bi in 0:-1:-maxiter
             for ai in 0:-1:-maxiter
-                rij=atomj.position-atomi.position+ai*Vector([a,0,0])+bi*Vector([0,b,0])+ci*Vector([0,0,c])
-                rij_lt=cell.lattice_vectors*rij
-                r=norm(rij_lt)
-                if r>cutoff
+                temp_rij = base_rij .+ ai * a_vector .+ bi * b_vector .+ ci * c_vector
+                temp_rij_lt = cell.lattice_vectors * temp_rij
+                r = norm(temp_rij_lt)
+                if r > cutoff
                     break
                 end
-                if r<tol
+                if r < tol
                     continue
                 end
-                energe+=interaction.cutenerge(r)
+                energe += interaction.cutenerge(r)
             end
         end
-
     end
+    
     if ifnormalize
-        energe=energe/cni
+        energe /= cni
     end
+    
     return energe
 end
 
@@ -255,7 +261,9 @@ end
 function cell_energe(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=true,maxiter::Int=-1,tol::Float64=1e-3)
     a,b,c=cell.copy
     if interaction.cutoff>minimum((cell.lattice_vectors*Vector([a,b,c])))
-        println("Warning: Cutoff is larger than the minimum distance of the lattice vectors,energe i and Ri will be lost")
+        lv=cell.lattice_vectors*Vector([a,b,c])
+        cutoff=interaction.cutoff
+        println("Warning: Cutoff $cutoff is larger than the minimum distance of the lattice vectors $lv ,energe i and Ri will be lost")
     end
     energe=0.0
     for i in 1:length(cell.atoms)
