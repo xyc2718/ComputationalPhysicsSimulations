@@ -6,22 +6,24 @@ using LinearAlgebra
 # using Makie
 using GLMakie 
 
-export Atom, UnitCell, copycell, visualize_unitcell_atoms, Interaction, cell_energeij, cell_energe
+export Atom, UnitCell, copycell, visualize_unitcell_atoms, Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0
 
 
 """
 原子类型
 :param position: 原子位置
 :param cn: 配位数
+:param bound 边界状态 [1,1,0]表示处于x,y的边界上 cn=2^(bound)
 """
 struct Atom
     position::Vector{Float64}
     cn::Int
-    function Atom(position,cn)
-        new(position,cn)
+    bound::Vector{Int}
+    function Atom(position,cn,bound)
+        new(position,cn,bound)
     end
     function Atom(position)
-        new(position,1)
+        new(position,1,[0,0,0])
     end
 end
 
@@ -61,6 +63,7 @@ end
 function copycell(cell::UnitCell,a::Int,b::Int,c::Int,tol::Float64=0.001)::UnitCell
     atoms=Vector{Atom}([])
     pl=Vector{Vector{Float64}}([])
+    cp=[a,b,c]
     for atom in cell.atoms
         for i in 0:a-1
             for j in 0:b-1
@@ -69,17 +72,18 @@ function copycell(cell::UnitCell,a::Int,b::Int,c::Int,tol::Float64=0.001)::UnitC
                     if newp in pl
                         continue
                     end
-                    if (newp==[0.0,0.0,0.0]||newp==[1.0*a,1.0*b,1.0*c])
-                        cn=8
-                    elseif count(x -> abs(x) < tol, newp)==2
-                        cn=4
-                    elseif count(x -> abs(x) < tol, newp)==1
-                        cn=2
-                    else
-                        cn=1 
+                    bound=[0.0,a*1.0]
+                    bd=Vector{Int}([0,0,0])
+                    ct=0
+                    for i in 1:3
+                        bound[2]=cp[i]*1.0
+                        if count(x -> abs(x)<tol,(bound.-newp[i]))>0
+                                bd[i]+=1
+                                ct+=1
+                        end
                     end
-
-                    push!(atoms,Atom(newp,cn))
+                    cn=2^ct
+                    push!(atoms,Atom(newp,cn,bd))
                     push!(pl,newp)
                 end
             end
@@ -89,18 +93,23 @@ function copycell(cell::UnitCell,a::Int,b::Int,c::Int,tol::Float64=0.001)::UnitC
     return UnitCell(cell.lattice_vectors,atoms,Vector([a,b,c]))
 end
 
-
+# 定义一个颜色映射函数
+function color_map(cn)
+        colors = [:red, :green, :blue, :yellow, :purple, :orange, :cyan, :magenta]
+        return colors[mod(cn - 1, length(colors)) + 1]
+end
 """
 可视化晶胞原子
 """
-function visualize_unitcell_atoms(cell::UnitCell,atomcolor=:red,markersize=10,veccolor=:blue,linewith=0.1)::Figure
+function visualize_unitcell_atoms(cell::UnitCell,markersize=10,veccolor=:blue,linewith=0.1)::Figure
     fig =GLMakie.Figure(size = (800, 600))
     ax = GLMakie.Axis3(fig[1, 1], title = "Visualization of Atoms in the Unit Cell", 
                xlabel = "X", ylabel = "Y", zlabel = "Z")
     M=cell.lattice_vectors
     for atom in cell.atoms
         p=M*atom.position
-        GLMakie.scatter!(ax,p..., color = atomcolor, markersize = markersize)
+        cni=atom.cn
+        GLMakie.scatter!(ax,p..., color = color_map(cni), markersize = markersize)
     end
     
     # 绘制晶格向量（晶胞的边缘）
@@ -126,36 +135,36 @@ end
 :param cutrg: 截断范围
 """
 struct Interaction{F1, F2, F3, F4}
-    energe::F1  # 势能函数
+    energy::F1  # 势能函数
     force::F2   # 力函数
-    cutenerge::F3  # 截断势能函数
+    cutenergy::F3  # 截断势能函数
     cutforce::F4   # 截断力函数
     cutoff::Float64  # 截断距离
     cutrg::Float64   # 截断范围
 
 
     # 定义构造函数
-    function Interaction(energe::F1, force::F2, cutoff::Float64, cutrg::Float64) where {F1, F2}
+    function Interaction(energy::F1, force::F2, cutoff::Float64, cutrg::Float64) where {F1, F2}
         
 
         # 初始化截断势能和力的参数
-        Er1 = 0
-        dU1 = 0
-        Er2 = energe(cutoff - cutrg)
-        dU2 = (force(Vector([cutoff - cutrg,0,0])))[1]
-        a = -(dU2 - dU1) / (2 * cutrg)
-        b = -2 * a * (cutoff )
-        c = Er1 - a * (cutoff)^2 - b * (cutoff)
+        Er2 = energy(cutoff - cutrg)
+        dU2 = -(force(Vector([cutoff - cutrg,0,0])))[1]
+        bb=Vector{Float64}([0.0,0.0,dU2,Er2])
+        x1=cutoff
+        x2=cutoff-cutrg
+        A=[x1^3 x1^2 x1 1;3*x1^2 2*x1 1 0;3*x2^3 2*x2 1 0;x2^3 x2^2 x2 1]
+        a,b,c,d=inv(A)*bb
 
         # 定义截断势能函数
-        function cutenerge(r::Float64)
+        function cutenergy(r::Float64)
             nr = abs(r)
             if nr > cutoff
                 return 0.0
             elseif nr < cutoff - cutrg
-                return energe(r)
+                return energy(r)
             else
-                return a * nr^2 + b * nr + c
+                return a*nr^3+b*nr^2+c*nr+d
             end
         end
 
@@ -167,7 +176,7 @@ struct Interaction{F1, F2, F3, F4}
             elseif nr < cutoff - cutrg
                 return force(r)
             else
-                return ((2 * a * nr + b) / nr) * r
+                return -((3 * a * nr^2 +2*b*nr+c) / nr) * r
             end
         end
 
@@ -175,7 +184,7 @@ struct Interaction{F1, F2, F3, F4}
         cutforce(r::Float64) = (cutforce(Vector([r, 0, 0])))[1]
 
         # 返回新的 Interaction 实例
-        new{F1, F2, typeof(cutenerge), typeof(cutforce)}(energe, force, cutenerge, cutforce, cutoff, cutrg)
+        new{F1, F2, typeof(cutenergy), typeof(cutforce)}(energy, force, cutenergy, cutforce, cutoff, cutrg)
     end
 end
 
@@ -189,39 +198,36 @@ end
 :param maxiter: 最大迭代次数，默认为 -1,将自动计算
 :param tol: 误差，默认为 1e-3 用于判断div 0错误
 """
-
-function cell_energeij(cell::UnitCell, interaction::Interaction, i::Int, j::Int; ifnormalize::Bool=true, maxiter::Int=-1, tol::Float64=1e-3)
+function cell_energyij(cell::UnitCell, interaction::Interaction, i::Int, j::Int; ifnormalize::Bool=true, maxiter::Int=-1, tol::Float64=1e-3)
     cutoff = interaction.cutoff
     atomi = cell.atoms[i]
     atomj = cell.atoms[j]
     a, b, c = cell.copy
     if maxiter == -1
-        maxiter = Int(ceil(cutoff / minimum(cell.lattice_vectors * @SVector [1, 1, 1]))) + 1
+        maxiter = Int(ceil(cutoff / minimum(cell.lattice_vectors * @SVector [1, 1, 1]))) 
     end
     cni = atomi.cn
     base_rij = SVector{3}(atomj.position - atomi.position)
-
     # 预先计算这些向量
     a_vector = @SVector [a, 0, 0]
     b_vector = @SVector [0, b, 0]
     c_vector = @SVector [0, 0, c]
-
-    energe = -interaction.cutenerge(norm(cell.lattice_vectors * base_rij))
+    energy = -interaction.cutenergy(norm(cell.lattice_vectors * base_rij))
     
     for ci in 0:maxiter
         for bi in 0:maxiter
             for ai in 0:maxiter
-                temp_rij = base_rij .+ ai * a_vector .+ bi * b_vector .+ ci * c_vector
+                temp_rij = base_rij + ai * a_vector + bi * b_vector + ci * c_vector
                 temp_rij_lt = cell.lattice_vectors * temp_rij
                 r = norm(temp_rij_lt)
-        
                 if r > cutoff
-                    break
+                    continue
                 end
                 if r < tol
                     continue
                 end
-                energe += interaction.cutenerge(r)
+                # println("ij cal $temp_rij at $ai,$bi,$ci")
+                energy += interaction.cutenergy(r)
             end
         end
     end
@@ -229,25 +235,27 @@ function cell_energeij(cell::UnitCell, interaction::Interaction, i::Int, j::Int;
     for ci in 0:-1:-maxiter
         for bi in 0:-1:-maxiter
             for ai in 0:-1:-maxiter
-                temp_rij = base_rij .+ ai * a_vector .+ bi * b_vector .+ ci * c_vector
+                temp_rij = base_rij + ai * a_vector + bi * b_vector + ci * c_vector
                 temp_rij_lt = cell.lattice_vectors * temp_rij
                 r = norm(temp_rij_lt)
+                # println("ij cal $temp_rij at $ai,$bi,$ci,$r")
                 if r > cutoff
-                    break
+                    # println("r>ct at $r $ai")
+                    continue
                 end
                 if r < tol
                     continue
                 end
-                energe += interaction.cutenerge(r)
+                energy += interaction.cutenergy(r)
             end
         end
     end
     
     if ifnormalize
-        energe /= cni
+        energy /= cni
     end
     
-    return energe
+    return energy
 end
 
 """
@@ -258,22 +266,91 @@ end
 :param maxiter: 最大迭代次数，默认为 -1,将自动计算
 :param tol: 误差，默认为 1e-3 用于判断div 0错误
 """
-function cell_energe(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=true,maxiter::Int=-1,tol::Float64=1e-3)
+function cell_energy(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=true,maxiter::Int=-1,tol::Float64=1e-3)
     a,b,c=cell.copy
-    if interaction.cutoff>minimum((cell.lattice_vectors*Vector([a,b,c])))
-        lv=cell.lattice_vectors*Vector([a,b,c])
-        cutoff=interaction.cutoff
-        println("Warning: Cutoff $cutoff is larger than the minimum distance of the lattice vectors $lv ,energe i and Ri will be lost")
-    end
-    energe=0.0
+    # if interaction.cutoff>minimum((cell.lattice_vectors*Vector([a,b,c])))
+    #     lv=cell.lattice_vectors*Vector([a,b,c])
+    #     cutoff=interaction.cutoff
+    #     println("Warning: Cutoff $cutoff is larger than the minimum distance of the lattice vectors $lv ,energe i and Ri will be lost")
+    # end
+    energy=0.0
     for i in 1:length(cell.atoms)
         for j in 1:length(cell.atoms)
             if i!=j
-                energe+=cell_energeij(cell,interaction,i,j,ifnormalize=ifnormalize,maxiter=maxiter,tol=tol)
+                energy+=cell_energyij(cell,interaction,i,j,ifnormalize=ifnormalize,maxiter=maxiter,tol=tol)
+                # println("energy at $i $j is $energy")
             end
         end
     end
-    return energe
+    return energy
+end
+
+
+"""
+采用邻近最小像,assert:cutoff<box/2
+"""
+function cell_energyij0(cell::UnitCell, interaction::Interaction, i::Int, j::Int; ifnormalize::Bool=true)
+    cutoff = interaction.cutoff
+    atomi = cell.atoms[i]
+    atomj = cell.atoms[j]
+    bd=atomj.bound
+    cp = cell.copy
+    cni = atomi.cn
+    rij=atomj.position-atomi.position
+    energy=0.0
+    for k in 1:3
+        rijk=rij[k]
+        cpk=cp[k]
+        if bd[k]==1
+            continue
+        end
+        if rijk>cpk/2
+                rij[k]=rijk-cpk
+        elseif rijk<-cpk/2
+                rij[k]=rijk+cpk
+        end
+    end
+    # println("ij0 cal $rij")
+    rij=cell.lattice_vectors*rij
+    nr=norm(rij)
+    if nr>cutoff
+        energy=0.0
+    else
+        energy=interaction.cutenergy(nr)
+        if ifnormalize
+            energy /= cni
+        end
+    end
+    return energy
+end
+
+
+
+"""
+计算晶胞的总能量,采用邻近最小像,assert:cutoff<box/2
+:param cell: 晶胞
+:param interaction: 相互作用
+:param ifnormize: 是否归一化，默认为 true,将用配位数对能量进行归一化
+:param maxiter: 最大迭代次数，默认为 -1,将自动计算
+:param tol: 误差，默认为 1e-3 用于判断div 0错误
+"""
+function cell_energy0(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=true)
+    a,b,c=cell.copy
+    # if interaction.cutoff>minimum((cell.lattice_vectors*Vector([a,b,c])))
+    #     lv=cell.lattice_vectors*Vector([a,b,c])
+    #     cutoff=interaction.cutoff
+    #     println("Warning: Cutoff $cutoff is larger than the minimum distance of the lattice vectors $lv ,energe i and Ri will be lost")
+    # end
+    energy=0.0
+    for i in 1:length(cell.atoms)
+        for j in 1:length(cell.atoms)
+            if i!=j
+                energy+=cell_energyij0(cell,interaction,i,j,ifnormalize=ifnormalize)
+                # println("energy at $i $j is $energy")
+            end
+        end
+    end
+    return energy
 end
 
 
