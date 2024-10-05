@@ -6,24 +6,39 @@ using LinearAlgebra
 # using Makie
 using GLMakie 
 
-export Atom, UnitCell, copycell, visualize_unitcell_atoms, Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0
+export Atom, UnitCell, copycell, visualize_unitcell_atoms, Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,kb
 
+global const kb=1.0
 
 """
 原子类型
 :param position: 原子位置
+:param momentum: 原子动量
+:param mass: 原子质量
 :param cn: 配位数
 :param bound 边界状态 [1,1,0]表示处于x,y的边界上 cn=2^(bound)
 """
 struct Atom
     position::Vector{Float64}
+    momentum::Vector{Float64}
+    mass::Float64
     cn::Int
     bound::Vector{Int}
-    function Atom(position,cn,bound)
-        new(position,cn,bound)
+    function Atom(position::Vector{Float64},momentum::Vector{Float64},mass::Float64,cn::Int,bound::Vector{Int})
+        new(position,momentum,mass,cn,bound)
     end
-    function Atom(position)
-        new(position,1,[0,0,0])
+    function Atom(position::Vector{Float64})
+        new(position,zeros(3),1.0,1,[0,0,0])
+    end
+    function Atom(position::Vector{Float64},momentum::Vector{Float64})
+        new(position,momentum,1.0,1,[0,0,0])
+    end
+
+    function Atom(position::Vector{Float64},mass::Float64)
+        new(position,zeros(3),mass,1,[0,0,0])
+    end
+    function Atom(position::Vector{Float64},momentum::Vector{Float64},mass::Float64)
+        new(position,momentum,mass,1,[0,0,0])
     end
 end
 
@@ -42,14 +57,18 @@ struct UnitCell
     copy::Vector{Int}
     Volume::Float64
     function UnitCell(lattice_vectors::Matrix{Float64}, atoms::Vector{Atom}, copy::Vector{Int})
+        # println(copy[1]*copy[2]*copy[3])
+        # println(det(lattice_vectors))
         v=copy[1]*copy[2]*copy[3]*det(lattice_vectors)
         new(lattice_vectors, atoms,copy,v)
     end
     function UnitCell(lattice_vectors::Matrix{Float64}, atoms::Vector{Atom})
-        new(lattice_vectors, atoms, Vector([1,1,1]))
+        v=det(lattice_vectors)
+        new(lattice_vectors, atoms, Vector([1,1,1]),v)
     end
     function UnitCell(lattice_vectors::Adjoint{Float64, Matrix{Float64}}, atoms::Vector{Atom})
-        new(lattice_vectors, atoms, Vector([1,1,1]))
+        v=det(lattice_vectors)
+        new(lattice_vectors, atoms, Vector([1,1,1]),v)
     end
 end
 
@@ -69,6 +88,8 @@ function copycell(cell::UnitCell,a::Int,b::Int,c::Int,tol::Float64=0.001)::UnitC
             for j in 0:b-1
                 for k in 0:c-1
                     newp=atom.position+Vector([i,j,k])
+                    pm=atom.momentum
+                    m=atom.mass
                     if newp in pl
                         continue
                     end
@@ -83,7 +104,7 @@ function copycell(cell::UnitCell,a::Int,b::Int,c::Int,tol::Float64=0.001)::UnitC
                         end
                     end
                     cn=2^ct
-                    push!(atoms,Atom(newp,cn,bd))
+                    push!(atoms,Atom(newp,pm,m,cn,bd))
                     push!(pl,newp)
                 end
             end
@@ -321,7 +342,7 @@ function cell_energyij0(cell::UnitCell, interaction::Interaction, i::Int, j::Int
             energy /= cni
         end
     end
-    return energy
+    return energy/2
 end
 
 
@@ -351,6 +372,83 @@ function cell_energy0(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=
         end
     end
     return energy
+end
+
+"""
+计算晶胞中i,j原子之间的相互作用力
+:param cell: 晶胞
+:param interaction: 相互作用
+:param i,j: 原子序号
+"""
+function cell_forceij(cell::UnitCell, interaction::Interaction, i::Int, j::Int)
+    cutoff = interaction.cutoff
+    atomi = cell.atoms[i]
+    atomj = cell.atoms[j]
+    bd=atomj.bound
+    cp = cell.copy
+    cni = atomi.cn
+    rij=atomj.position-atomi.position
+    for k in 1:3
+        rijk=rij[k]
+        cpk=cp[k]
+        if bd[k]==1
+            continue
+        end
+        if rijk>cpk/2
+                rij[k]=rijk-cpk
+        elseif rijk<-cpk/2
+                rij[k]=rijk+cpk
+        end
+    end
+    rij=cell.lattice_vectors*rij
+    nr=norm(rij)
+    if nr>cutoff
+        force=zeros(3)
+    else
+        force=interaction.cutforce(rij)
+    end
+
+    if any(isnan,force)
+        println("Warning the same atoms of atom $i j=$j lead to the nan force,please check their cn")
+    end
+    return force
+end
+
+"""
+计算晶胞中i原子的受力
+:param cell: 晶胞
+:param interaction: 相互作用
+:param i: 原子序号
+"""
+function cell_forcei(cell::UnitCell,interaction::Interaction,i::Int)
+    forcei=zeros(3)
+        for j in 1:length(cell.atoms)
+            if i!=j
+                forcei+=cell_forceij(cell,interaction,i,j)
+            end
+        end
+    return forcei
+end
+
+
+"""
+计算晶胞的应力张量
+:param cell: 晶胞
+:param interaction: 相互作用
+"""
+function force_tensor(cell::UnitCell,interaction::Interaction)
+    tensor=zeros(3,3)
+    v=cell.Volume
+    for a in 1:3
+        for b in 1:3
+            for i in 1:length(cell.atoms)
+                forcei=cell_forcei(cell,interaction,i)
+                atom=cell.atoms[i]
+                tensor[a,b]+=forcei[a]*atom.position[b]/2+atom.momentum[a]*atom.momentum[b]/atom.mass
+            end
+        end
+    end
+    return tensor./v
 end
 
 
