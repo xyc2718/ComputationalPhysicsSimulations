@@ -6,7 +6,9 @@ using LinearAlgebra
 # using Makie
 using GLMakie 
 
-export Atom, UnitCell, copycell, visualize_unitcell_atoms, Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,kb,visualize_unitcell_atoms0
+export Atom, UnitCell, copycell, visualize_unitcell_atoms, Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,kb,visualize_unitcell_atoms0,
+    filtercell
+    
 
 
 """
@@ -15,7 +17,7 @@ export Atom, UnitCell, copycell, visualize_unitcell_atoms, Interaction, cell_ene
 :param momentum: 原子动量
 :param mass: 原子质量
 :param cn: 配位数
-:param bound 边界状态 [1,1,0]表示处于x,y的边界上 cn=2^(bound)
+:param bound 边界状态 [1,1,0]表示处于x,y的0,0边界上 cn=2^(bound),[-1,-1,-1]表示位于a,b,c
 """
 struct Atom
     position::Vector{Float64}
@@ -92,12 +94,15 @@ function copycell(cell::UnitCell,a::Int,b::Int,c::Int,tol::Float64=0.001)::UnitC
                     if newp in pl
                         continue
                     end
-                    bound=[0.0,a*1.0]
+                    
                     bd=Vector{Int}([0,0,0])
                     ct=0
                     for i in 1:3
-                        bound[2]=cp[i]*1.0
-                        if count(x -> abs(x)<tol,(bound.-newp[i]))>0
+                        bound=cp[i]*1.0
+                        if abs(bound-newp[i])<tol
+                                bd[i]-=1
+                                ct+=1
+                        elseif abs(newp[i])<tol
                                 bd[i]+=1
                                 ct+=1
                         end
@@ -111,6 +116,18 @@ function copycell(cell::UnitCell,a::Int,b::Int,c::Int,tol::Float64=0.001)::UnitC
     end
     
     return UnitCell(cell.lattice_vectors,atoms,Vector([a,b,c]))
+end
+
+function filtercell(cell::UnitCell)
+    natom=length(cell.atoms)
+    atoms=Vector{Atom}([])
+    for i in 1:natom
+        if -1 in cell.atoms[i].bound
+            continue
+        end
+        push!(atoms,cell.atoms[i])
+    end
+    return UnitCell(cell.lattice_vectors,atoms,cell.copy)
 end
 
 # 定义一个颜色映射函数
@@ -320,7 +337,7 @@ function cell_energy(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=t
             end
         end
     end
-    return energy
+    return energy/2
 end
 
 
@@ -331,7 +348,7 @@ function cell_energyij0(cell::UnitCell, interaction::Interaction, i::Int, j::Int
     cutoff = interaction.cutoff
     atomi = cell.atoms[i]
     atomj = cell.atoms[j]
-    bd=atomj.bound
+    bd=abs.(atomj.bound)
     cp = cell.copy
     cni = atomi.cn
     rij=atomj.position-atomi.position
@@ -339,9 +356,9 @@ function cell_energyij0(cell::UnitCell, interaction::Interaction, i::Int, j::Int
     for k in 1:3
         rijk=rij[k]
         cpk=cp[k]
-        if bd[k]==1
-            continue
-        end
+        # if bd[k]==1
+        #     continue
+        # end
         if rijk>cpk/2
                 rij[k]=rijk-cpk
         elseif rijk<-cpk/2
@@ -359,7 +376,7 @@ function cell_energyij0(cell::UnitCell, interaction::Interaction, i::Int, j::Int
             energy /= cni
         end
     end
-    return energy/2
+    return energy
 end
 
 
@@ -388,7 +405,7 @@ function cell_energy0(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=
             end
         end
     end
-    return energy
+    return energy/2
 end
 
 """
@@ -401,16 +418,16 @@ function cell_forceij(cell::UnitCell, interaction::Interaction, i::Int, j::Int)
     cutoff = interaction.cutoff
     atomi = cell.atoms[i]
     atomj = cell.atoms[j]
-    bd=atomj.bound
+    bd=abs.(atomj.bound)
     cp = cell.copy
     cni = atomi.cn
     rij=atomj.position-atomi.position
     for k in 1:3
         rijk=rij[k]
         cpk=cp[k]
-        if bd[k]==1
-            continue
-        end
+        # if bd[k]==1
+        #     continue
+        # end
         if rijk>cpk/2
                 rij[k]=rijk-cpk
         elseif rijk<-cpk/2

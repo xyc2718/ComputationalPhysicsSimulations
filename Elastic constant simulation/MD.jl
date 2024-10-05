@@ -83,14 +83,13 @@ end
 :param dUdV: function for dUdV and default is dUdV_default return 0.0
 """
 function Hz(z::Vector{Float64},cell::UnitCell,interaction::Interaction,thermostat::Thermostat,barostat::Barostat,dUdV::T=dUdV_default) where T
-    
+    kb=1.38064852e-23
     dim=3*length(cell.atoms)+2
     Hz=zeros(dim*2)
     natom=length(cell.atoms)
     # if dim!=length(z)
     #     throw("The dimension of z is not consist with the dimension of the system. z should be natom*3+2")
     # end
-    v=cell.Volume
     W=barostat.W
     Q=thermostat.Q
     temp=thermostat.T
@@ -138,47 +137,31 @@ RK3步进
 return newz
 """
 function RK3_step(z::Vector{Float64},dt::Float64,cell::UnitCell, interaction::Interaction, thermostat::Thermostat, barostat::Barostat, dUdV::T = dUdV_default) where T
-    
-        k1=Hz(z,cell,interaction,thermostat,barostat,dUdV)
-        k2=Hz(z+dt/2*k1,cell,interaction,thermostat,barostat,dUdV)
-        k3=Hz(z-dt*k1+2*dt*k2,cell,interaction,thermostat,barostat,dUdV)
-            newz=z+dt/6*(k1+4*k2+k3)
-        zmod=similar(z)
-        a,b,c=cell.lattice_vectors*cell.copy
-        natom=length(cell.atoms)
-        for i in 1:natom
-            zmod[3*i-2]=mod(z[3*i-2],a)
-            zmod[3*i-1]=mod(z[3*i-1],b)
-            zmod[3*i]=mod(z[3*i],c)
-            zmod[3*natom+3*i]=mod(z[3*natom+3*i],a)
-            zmod[3*natom+3*i+1]=mod(z[3*natom+3*i+1],b)
-            zmod[3*natom+3*i+2]=mod(z[3*natom+3*i+2],c)
-        end
-    return zmod
-end
+    k1=Hz(z,cell,interaction,thermostat,barostat,dUdV)
+    k2=Hz(z+dt/2*k1,cell,interaction,thermostat,barostat,dUdV)
+    k3=Hz(z-dt*k1+2*dt*k2,cell,interaction,thermostat,barostat,dUdV)
+    newz=z+dt/6*(k1+4*k2+k3)
+    zmod=-1*ones(length(newz))
+    a,b,c=cell.lattice_vectors*cell.copy
+    natom=length(cell.atoms)
+    for i in 1:natom
+        zmod[3*i-2]=mod(newz[3*i-2],a)
+        zmod[3*i-1]=mod(newz[3*i-1],b)
+        zmod[3*i]=mod(newz[3*i],c)
+        zmod[3*natom+3*i]=mod(newz[3*natom+3*i],a)
+        zmod[3*natom+3*i+1]=mod(newz[3*natom+3*i+1],b)
+        zmod[3*natom+3*i+2]=mod(newz[3*natom+3*i+2],c)
+    end
+    zmod[3*natom+1]=newz[3*natom+1]
+    zmod[3*natom+2]=newz[3*natom+2]
+    zmod[2*3*natom+3]=newz[2*3*natom+3]
+    zmod[2*3*natom+4]=newz[2*3*natom+4]
+return zmod
 
 """
 将z转化为atoms
 :param z: z=[r1...rn,Rt,Rv,p1,...pn,Pt,Pv]
 return atoms
-"""
-function z2atoms(z::Vector{Float64})
-    natom=Int((length(z)-4)/6)
-    rl=z[1:3*natom]
-    pl=z[3*natom+3:3*natom+3*natom+3]
-    atoms=Vector{Atom}(undef,natom)
-    for i in 1:natom
-        atom=Atom(rl[3*i-2:3*i],pl[3*i-2:3*i])
-        atoms[i]=atom
-    end
-    return atoms
-end
-
-
-"""
-将z转化为UnitCell
-:param z: z=[r1...rn,Rt,Rv,p1,...pn,Pt,Pv]
-:param lattice_vectors: lattice_vectors
 """
 function z2atoms(z::Vector{Float64},cell::UnitCell)
     natom=Int((length(z)-4)/6)
@@ -194,16 +177,29 @@ end
 
 
 """
+将z转化为UnitCell
+:param z: z=[r1...rn,Rt,Rv,p1,...pn,Pt,Pv]
+:param lattice_vectors: lattice_vectors
+"""
+function z2cell(z::Vector{Float64},cell::UnitCell)
+    atoms=z2atoms(z,cell)
+    newcell=UnitCell(cell.lattice_vectors,atoms,cell.copy)
+    return newcell
+end
+
+
+"""
 将UnitCell转化为z
 :param cell: UnitCell
 :param thermostat: Thermostat
 :param barostat: Barostat
 return z
 """
-function z2cell(z::Vector{Float64},cell::UnitCell)
-    atoms=z2atoms(z,cell)
-    newcell=UnitCell(lattice_vectors,atoms,cell.copy)
-    return newcell
+function cell2z(cell::UnitCell,thermostat::Thermostat,barostat::Barostat)
+    rl=[cell.lattice_vectors*atom.position for atom in cell.atoms];
+    pl=[atom.momentum for atom in cell.atoms];
+    z=vcat(vcat(rl...),thermostat.Rt,barostat.V,vcat(pl...),thermostat.Pt,barostat.Pv);
+    return z
 end
 end
 
