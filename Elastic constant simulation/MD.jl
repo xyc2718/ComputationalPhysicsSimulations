@@ -100,13 +100,13 @@ function Hz(z::Vector{Float64},cell::UnitCell,interaction::Interaction,thermosta
     for i in 1:natom
         atom=cell.atoms[i]
         mi=atom.mass
-        Hz[3*i-2]=1/mi+z[2*dim]*z[3*i-2]/W
-        Hz[3*i-1]=1/mi+z[2*dim]*z[3*i-1]/W
-        Hz[3*i]=1/mi+z[2*dim]*z[3*i]/W
+        Hz[3*i-2]=z[3*i-2+dim]/mi+z[2*dim]*z[3*i-2]/W
+        Hz[3*i-1]=z[3*i-1+dim]/mi+z[2*dim]*z[3*i-1]/W
+        Hz[3*i]=z[3*i+dim]/mi+z[2*dim]*z[3*i]/W
         fi=cell_forcei(cell,interaction,i)
-        Hz[dim+3*i-2]=fi[1]-(1+1/natom)*z[2*dim]/W*z[dim+3*i-2]-z[2*dim-1]*z[2*dim]/Q
-        Hz[dim+3*i-1]=fi[2]-(1+1/natom)*z[2*dim]/W*z[dim+3*i-1]-z[2*dim-1]*z[2*dim]/Q
-        Hz[dim+3*i]=fi[3]-(1+1/natom)*z[2*dim]/W*z[dim+3*i]-z[2*dim-1]*z[2*dim]/Q
+        Hz[dim+3*i-2]=fi[1]-(1+1/natom)*z[2*dim]/W*z[dim+3*i-2]-z[2*dim-1]*z[dim+3*i-2]/Q
+        Hz[dim+3*i-1]=fi[2]-(1+1/natom)*z[2*dim]/W*z[dim+3*i-1]-z[2*dim-1]*z[dim+3*i-1]/Q
+        Hz[dim+3*i]=fi[3]-(1+1/natom)*z[2*dim]/W*z[dim+3*i]-z[2*dim-1]*z[dim+3*i]/Q
         Hz[dim]=3*z[dim]*z[2*dim]/W
         Hz[2*dim]=3*z[dim]*(Pint-Pe)+1/natom*addp-z[2*dim-1]*z[2*dim]/Q
         Hz[dim-1]=z[2*dim-1]/Q
@@ -154,7 +154,7 @@ function RK3_step(z::Vector{Float64},dt::Float64,cell::UnitCell, interaction::In
             zmod[3*natom+3*i+1]=mod(z[3*natom+3*i+1],b)
             zmod[3*natom+3*i+2]=mod(z[3*natom+3*i+2],c)
         end
-    return newz
+    return zmod
 end
 
 """
@@ -180,11 +180,18 @@ end
 :param z: z=[r1...rn,Rt,Rv,p1,...pn,Pt,Pv]
 :param lattice_vectors: lattice_vectors
 """
-function z2cell(z::Vector{Float64},lattice_vectors::Matrix{Float64})
-    atoms=z2atoms(z)
-    newcell=UnitCell(lattice_vectors,atoms)
-    return newcell
+function z2atoms(z::Vector{Float64},cell::UnitCell)
+    natom=Int((length(z)-4)/6)
+    rl=z[1:3*natom]
+    pl=z[3*natom+3:3*natom+3*natom+3]
+    atoms=Vector{Atom}(undef,natom)
+    for i in 1:natom
+        atom=Atom(rl[3*i-2:3*i],pl[3*i-2:3*i],cell.atoms[i].mass,cell.atoms[i].cn,cell.atoms[i].bound)
+        atoms[i]=atom
+    end
+    return atoms
 end
+
 
 """
 将UnitCell转化为z
@@ -193,11 +200,10 @@ end
 :param barostat: Barostat
 return z
 """
-function cell2z(cell::UnitCell,thermostat::Thermostat,barostat::Barostat)
-    rl=[cell.lattice_vectors*atom.position for atom in cell.atoms];
-    pl=[atom.momentum for atom in cell.atoms];
-    z=vcat(vcat(rl...),thermostat.Rt,barostat.V,vcat(pl...),thermostat.Pt,barostat.Pv);
-    return z
+function z2cell(z::Vector{Float64},cell::UnitCell)
+    atoms=z2atoms(z,cell)
+    newcell=UnitCell(lattice_vectors,atoms,cell.copy)
+    return newcell
 end
 end
 

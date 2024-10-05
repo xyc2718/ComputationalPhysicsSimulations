@@ -6,7 +6,7 @@ include("cellmin.jl")
 using .Model
 using .MD
 using .cellmin
-global const kb=1.38*10^-23
+
 
 modules = [Model, MD, cellmin]
 
