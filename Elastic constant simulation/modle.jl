@@ -6,9 +6,8 @@ using LinearAlgebra
 # using Makie
 using GLMakie 
 
-export Atom, UnitCell, copycell, visualize_unitcell_atoms, Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,kb
+export Atom, UnitCell, copycell, visualize_unitcell_atoms, Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,kb,visualize_unitcell_atoms0
 
-global const kb=1.0
 
 """
 原子类型
@@ -140,11 +139,29 @@ function visualize_unitcell_atoms(cell::UnitCell,markersize=10,veccolor=:blue,li
         GLMakie.arrows!(ax, [origin], [origin + vec], color = veccolor, linewidth = linewith)
     end
     rg=maximum(cell.lattice_vectors*cell.copy)
+    rgmin=minimum(cell.lattice_vectors*cell.copy)
     xlims!(ax, 0, rg)
     ylims!(ax, 0, rg)
     zlims!(ax, 0, rg)
     return fig
 end
+
+"""
+可视化晶胞原子
+"""
+function visualize_unitcell_atoms0(cell::UnitCell,markersize=10,veccolor=:blue,linewith=0.1)::Figure
+    fig =GLMakie.Figure(size = (800, 600))
+    ax = GLMakie.Axis3(fig[1, 1], title = "Visualization of Atoms in the Unit Cell", 
+               xlabel = "X", ylabel = "Y", zlabel = "Z")
+    M=cell.lattice_vectors
+    for atom in cell.atoms
+        p=M*atom.position
+        cni=atom.cn
+        GLMakie.scatter!(ax,p..., color = color_map(cni), markersize = markersize)
+    end
+    return fig
+end
+
 
 """
 相互作用类型,通过二次函数添加截断于cutoff-cutrg - cutoff
