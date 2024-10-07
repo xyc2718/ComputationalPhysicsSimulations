@@ -157,6 +157,8 @@ function RK3_step(z::Vector{Float64},dt::Float64,cell::UnitCell, interaction::In
     zmod[2*3*natom+3]=newz[2*3*natom+3]
     zmod[2*3*natom+4]=newz[2*3*natom+4]
 return zmod
+end
+
 
 """
 将z转化为atoms
@@ -169,7 +171,7 @@ function z2atoms(z::Vector{Float64},cell::UnitCell)
     pl=z[3*natom+3:3*natom+3*natom+3]
     atoms=Vector{Atom}(undef,natom)
     for i in 1:natom
-        atom=Atom(rl[3*i-2:3*i],pl[3*i-2:3*i],cell.atoms[i].mass,cell.atoms[i].cn,cell.atoms[i].bound)
+        atom=Atom(inv(cell.lattice_vectors)*rl[3*i-2:3*i],pl[3*i-2:3*i],cell.atoms[i].mass,cell.atoms[i].cn,cell.atoms[i].bound)
         atoms[i]=atom
     end
     return atoms

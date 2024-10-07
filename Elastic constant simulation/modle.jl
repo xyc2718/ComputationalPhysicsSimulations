@@ -6,8 +6,7 @@ using LinearAlgebra
 # using Makie
 using GLMakie 
 
-export Atom, UnitCell, copycell, visualize_unitcell_atoms, Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,kb,visualize_unitcell_atoms0,
-    filtercell
+export Atom, UnitCell, copycell, visualize_unitcell_atoms, Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,kb,visualize_unitcell_atoms0,filtercell,cell_forceij!,cell_forcei!,force_tensor!,cell_temp
     
 
 
@@ -52,7 +51,7 @@ end
 :param copy: 晶胞复制次数,default=[1,1,1]
 :param Volume: 晶胞体积,default=det(lattice_vectors)*copy[1]*copy[2]*copy[3]
 """
-struct UnitCell
+mutable struct UnitCell
     lattice_vectors::Matrix{Float64}
     atoms::Vector{Atom}
     copy::Vector{Int}
@@ -138,7 +137,7 @@ end
 """
 可视化晶胞原子
 """
-function visualize_unitcell_atoms(cell::UnitCell,markersize=10,veccolor=:blue,linewith=0.1)::Figure
+function visualize_unitcell_atoms(cell::UnitCell;markersize=10,veccolor=:blue,linewith=0.1)::Figure
     fig =GLMakie.Figure(size = (800, 600))
     ax = GLMakie.Axis3(fig[1, 1], title = "Visualization of Atoms in the Unit Cell", 
                xlabel = "X", ylabel = "Y", zlabel = "Z")
@@ -166,18 +165,28 @@ end
 """
 可视化晶胞原子
 """
-function visualize_unitcell_atoms0(cell::UnitCell,markersize=10,veccolor=:blue,linewith=0.1)::Figure
+function visualize_unitcell_atoms0(cell::UnitCell;markersize=10,iftext::Bool=false)::Figure
     fig =GLMakie.Figure(size = (800, 600))
     ax = GLMakie.Axis3(fig[1, 1], title = "Visualization of Atoms in the Unit Cell", 
                xlabel = "X", ylabel = "Y", zlabel = "Z")
     M=cell.lattice_vectors
-    for atom in cell.atoms
+    for i in 1:length(cell.atoms)
+        atom=cell.atoms[i]
         p=M*atom.position
         cni=atom.cn
-        GLMakie.scatter!(ax,p..., color = color_map(cni), markersize = markersize)
+        scatter!(ax,p..., color = color_map(cni), markersize = markersize)
     end
+    if iftext
+        for i in 1:length(cell.atoms)
+            atom=cell.atoms[i]
+            p=M*atom.position
+            text!(ax,string(i),position=Point3f(p))
+        end
+    end
+
     return fig
 end
+
 
 
 """
@@ -340,6 +349,19 @@ function cell_energy(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=t
     return energy/2
 end
 
+"""
+计算cell温度
+:param cell: 晶胞
+"""
+function cell_temp(cell::UnitCell)
+    kb=1.38e-23
+    Ek=0.0
+    for atom in cell.atoms
+        p=atom.momentum
+        Ek+=sum(p.^2)/(atom.mass)
+    end
+    return 2*Ek/(3*kb*length(cell.atoms))    
+end
 
 """
 采用邻近最小像,assert:cutoff<box/2
@@ -413,6 +435,8 @@ end
 :param cell: 晶胞
 :param interaction: 相互作用
 :param i,j: 原子序号
+
+这里rij其实应该是rji,一开始搞错了,故最后加符号
 """
 function cell_forceij(cell::UnitCell, interaction::Interaction, i::Int, j::Int)
     cutoff = interaction.cutoff
@@ -443,9 +467,9 @@ function cell_forceij(cell::UnitCell, interaction::Interaction, i::Int, j::Int)
     end
 
     if any(isnan,force)
-        println("Warning the same atoms of atom $i j=$j lead to the nan force,please check their cn")
+        throw("Warning the same atoms of atom $i j=$j lead to the nan force,please check their cn")
     end
-    return force
+    return -force
 end
 
 """
@@ -486,4 +510,96 @@ function force_tensor(cell::UnitCell,interaction::Interaction)
 end
 
 
+"""
+计算晶胞中i,j原子之间的相互作用能
+:param cell: 晶胞
+:param interaction: 相互作用
+:param i,j: 原子序号
+:param ifnormize: 是否归一化，默认为 true,将用配位数对能量进行归一化
+:param maxiter: 最大迭代次数，默认为 -1,将自动计算
+:param tol: 误差，默认为 1e-3 用于判断div 0错误
+"""
+function cell_forceij!(cell::UnitCell, interaction::Interaction, i::Int, j::Int;maxiter::Int=-1)
+    cutoff = interaction.cutoff
+    atomi = cell.atoms[i]
+    atomj = cell.atoms[j]
+    a, b, c = cell.copy
+    if maxiter == -1
+        maxiter = Int(ceil(cutoff / minimum(cell.lattice_vectors * @SVector [1, 1, 1]))) 
+    end
+    base_rij = SVector{3}(atomj.position - atomi.position)
+    # 预先计算这些向量
+    a_vector = @SVector [a, 0, 0]
+    b_vector = @SVector [0, b, 0]
+    c_vector = @SVector [0, 0, c]
+    force = -interaction.cutforce(cell.lattice_vectors * base_rij)
+    for ci in 0:maxiter
+        for bi in 0:maxiter
+            for ai in 0:maxiter
+                temp_rij = base_rij + ai * a_vector + bi * b_vector + ci * c_vector
+                temp_rij_lt = cell.lattice_vectors * temp_rij
+                r = norm(temp_rij_lt)
+                if r > cutoff
+                    continue
+                end
+                force += interaction.cutforce(temp_rij_lt)
+            end
+        end
+    end
+
+    for ci in 0:-1:-maxiter
+        for bi in 0:-1:-maxiter
+            for ai in 0:-1:-maxiter
+                temp_rij = base_rij + ai * a_vector + bi * b_vector + ci * c_vector
+                temp_rij_lt = cell.lattice_vectors * temp_rij
+                r = norm(temp_rij_lt)
+                if r > cutoff
+                    continue
+                end
+                force+= interaction.force(temp_rij_lt)
+            end
+        end
+    end
+    
+    return -force
+end
+
+function cell_forcei!(cell::UnitCell,interaction::Interaction,i::Int;maxiter::Int=-1)
+    a,b,c=cell.copy
+    # if interaction.cutoff>minimum((cell.lattice_vectors*Vector([a,b,c])))
+    #     lv=cell.lattice_vectors*Vector([a,b,c])
+    #     cutoff=interaction.cutoff
+    #     println("Warning: Cutoff $cutoff is larger than the minimum distance of the lattice vectors $lv ,energe i and Ri will be lost")
+    # end
+    force=zeros(3)
+
+        for j in 1:length(cell.atoms)
+            if i!=j
+                force+=cell_forceij!(cell,interaction,i,j,maxiter=maxiter)
+                # println("energy at $i $j is $energy")
+            end
+        end
+ 
+    return force
+end
+
+"""
+计算晶胞的应力张量
+:param cell: 晶胞
+:param interaction: 相互作用
+"""
+function force_tensor!(cell::UnitCell,interaction::Interaction)
+    tensor=zeros(3,3)
+    v=cell.Volume
+    for a in 1:3
+        for b in 1:3
+            for i in 1:length(cell.atoms)
+                forcei=cell_forcei!(cell,interaction,i)
+                atom=cell.atoms[i]
+                tensor[a,b]+=forcei[a]*atom.position[b]/2+atom.momentum[a]*atom.momentum[b]/atom.mass
+            end
+        end
+    end
+    return tensor./v
+end
 end
