@@ -6,11 +6,12 @@ using LinearAlgebra
 # using Makie
 using GLMakie 
 using ..Model
+using Base.Threads
     
 
-export pressure_int,Thermostat,Barostat,Hz,symplectic_matrix,RK3_step,z2atoms,z2cell,cell2z,dUdV_default
+export pressure_int,Thermostat,Barostat,Hz,symplectic_matrix,RK3_step!,z2atoms,z2cell,cell2z,dUdV_default,update_cell!  
 ###MD
-global const kb=1.38*10^-23
+
 
 """
 default function for dUdV
@@ -51,7 +52,7 @@ end
 :param Rt: 热浴变量 (friction coefficient)
 :param Pt: 热浴动量
 """
-struct Thermostat
+mutable struct Thermostat
     T::Float64  # 目标温度
     Q::Float64  # 热浴质量
     Rt::Float64  # 热浴变量 (friction coefficient)
@@ -65,10 +66,10 @@ end
 :param W: 压力浴质量
 :param Pv: 压力浴动量
 """
-struct Barostat
+mutable struct Barostat
     Pe::Float64  # 目标压力
-    V::Float64  # 系统体积
     W::Float64  # 压力浴质量
+    V::Float64  # 系统体积
     Pv::Float64  # 压力浴动量
 end
 
@@ -82,8 +83,7 @@ end
 :param barostat: Barostat
 :param dUdV: function for dUdV and default is dUdV_default return 0.0
 """
-function Hz(z::Vector{Float64},cell::UnitCell,interaction::Interaction,thermostat::Thermostat,barostat::Barostat,dUdV::T=dUdV_default) where T
-    kb=1.38064852e-23
+function Hz(z::Vector{Float64},cell::UnitCell,interaction::Interaction,thermostat::Thermostat,barostat::Barostat;dUdV::T=dUdV_default,kb::Float64=1.0) where T
     dim=3*length(cell.atoms)+2
     Hz=zeros(dim*2)
     natom=length(cell.atoms)
@@ -96,6 +96,7 @@ function Hz(z::Vector{Float64},cell::UnitCell,interaction::Interaction,thermosta
     Pe=barostat.Pe
     Pint=pressure_int(cell,interaction,dUdV)
     addp=sum([dot(atom.momentum,atom.momentum)/atom.mass for atom in cell.atoms])
+    # @threads 
     for i in 1:natom
         atom=cell.atoms[i]
         mi=atom.mass
@@ -106,11 +107,11 @@ function Hz(z::Vector{Float64},cell::UnitCell,interaction::Interaction,thermosta
         Hz[dim+3*i-2]=fi[1]-(1+1/natom)*z[2*dim]/W*z[dim+3*i-2]-z[2*dim-1]*z[dim+3*i-2]/Q
         Hz[dim+3*i-1]=fi[2]-(1+1/natom)*z[2*dim]/W*z[dim+3*i-1]-z[2*dim-1]*z[dim+3*i-1]/Q
         Hz[dim+3*i]=fi[3]-(1+1/natom)*z[2*dim]/W*z[dim+3*i]-z[2*dim-1]*z[dim+3*i]/Q
-        Hz[dim]=3*z[dim]*z[2*dim]/W
-        Hz[2*dim]=3*z[dim]*(Pint-Pe)+1/natom*addp-z[2*dim-1]*z[2*dim]/Q
-        Hz[dim-1]=z[2*dim-1]/Q
-        Hz[2*dim-1]=addp+z[2*dim]^2/W-(3*natom+1)*kb*temp
     end
+    Hz[dim]=3*z[dim]*z[2*dim]/W
+    Hz[2*dim]=3*z[dim]*(Pint-Pe)+1/natom*addp-z[2*dim-1]*z[2*dim]/Q
+    Hz[dim-1]=z[2*dim-1]/Q
+    Hz[2*dim-1]=addp+z[2*dim]^2/W-(3*natom+1)*kb*temp
     return Hz
 end
 
@@ -134,29 +135,32 @@ RK3步进
 :param thermostat: Thermostat
 :param barostat: Barostat
 :param dUdV: function for dUdV and default is dUdV_default return 0.0
-return newz
+return z
 """
-function RK3_step(z::Vector{Float64},dt::Float64,cell::UnitCell, interaction::Interaction, thermostat::Thermostat, barostat::Barostat, dUdV::T = dUdV_default) where T
-    k1=Hz(z,cell,interaction,thermostat,barostat,dUdV)
-    k2=Hz(z+dt/2*k1,cell,interaction,thermostat,barostat,dUdV)
-    k3=Hz(z-dt*k1+2*dt*k2,cell,interaction,thermostat,barostat,dUdV)
-    newz=z+dt/6*(k1+4*k2+k3)
-    zmod=-1*ones(length(newz))
+function RK3_step!(z::Vector{Float64},dt::Float64,cell::UnitCell, interaction::Interaction, thermostat::Thermostat, barostat::Barostat;dUdV::T = dUdV_default,kb::Float64=1.0) where T
+    k1=Hz(z,cell,interaction,thermostat,barostat,dUdV=dUdV,kb=kb)
+    zr=z+(dt/2).*k1
+    update_cell!(zr,cell)
+    k2=Hz(zr,cell,interaction,thermostat,barostat,dUdV=dUdV,kb=kb)
+    zr=z-dt.*k1+(2*dt).*k2
+    update_cell!(zr,cell)
+    k3=Hz(zr,cell,interaction,thermostat,barostat,dUdV=dUdV,kb=kb)
+    z.=z+(dt/6).*(k1.+4*k2.+k3)
+    update_cell!(z,cell)
     a,b,c=cell.lattice_vectors*cell.copy
     natom=length(cell.atoms)
     for i in 1:natom
-        zmod[3*i-2]=mod(newz[3*i-2],a)
-        zmod[3*i-1]=mod(newz[3*i-1],b)
-        zmod[3*i]=mod(newz[3*i],c)
-        zmod[3*natom+3*i]=mod(newz[3*natom+3*i],a)
-        zmod[3*natom+3*i+1]=mod(newz[3*natom+3*i+1],b)
-        zmod[3*natom+3*i+2]=mod(newz[3*natom+3*i+2],c)
+        z[3*i-2]=mod(z[3*i-2],a)
+        z[3*i-1]=mod(z[3*i-1],b)
+        z[3*i]=mod(z[3*i],c)
+        z[3*natom+3*i]=mod(z[3*natom+3*i],a)
+        z[3*natom+3*i+1]=mod(z[3*natom+3*i+1],b)
+        z[3*natom+3*i+2]=mod(z[3*natom+3*i+2],c)
     end
-    zmod[3*natom+1]=newz[3*natom+1]
-    zmod[3*natom+2]=newz[3*natom+2]
-    zmod[2*3*natom+3]=newz[2*3*natom+3]
-    zmod[2*3*natom+4]=newz[2*3*natom+4]
-return zmod
+    z[3*natom+1]=z[3*natom+1]
+    z[3*natom+2]=z[3*natom+2]
+    z[2*3*natom+3]=z[2*3*natom+3]
+    z[2*3*natom+4]=z[2*3*natom+4]
 end
 
 
@@ -181,13 +185,43 @@ end
 """
 将z转化为UnitCell
 :param z: z=[r1...rn,Rt,Rv,p1,...pn,Pt,Pv]
-:param lattice_vectors: lattice_vectors
+:param cell: UnitCell
 """
 function z2cell(z::Vector{Float64},cell::UnitCell)
     atoms=z2atoms(z,cell)
     newcell=UnitCell(cell.lattice_vectors,atoms,cell.copy)
     return newcell
 end
+
+
+"""
+将z转化为UnitCell,直接修改原始cell
+:param z: z=[r1...rn,Rt,Rv,p1,...pn,Pt,Pv]
+:param cell: UnitCell
+"""
+function update_cell!(z::Vector{Float64},cell::UnitCell)
+    natom=Int((length(z)-4)/6)
+    rl=z[1:3*natom]
+    pl=z[3*natom+3:3*natom+3*natom+3]
+
+###这里是否需要修改体积还有待考虑，现在加了p会向-inf发散  
+    v=z[3*natom+2]
+    v0=cell.Volume
+    ap=((v/v0)^(1/3)) 
+    ltm=cell.lattice_vectors.*ap
+    cell.lattice_vectors=ltm
+    cell.Volume=v
+#####################
+    for i in 1:natom
+        cell.atoms[i].position=inv(cell.lattice_vectors)*rl[3*i-2:3*i]
+        cell.atoms[i].momentum=pl[3*i-2:3*i]
+    end
+    # z[1:3*natom]=z[1:3*natom].*ap
+    # z[3*natom+3:3*natom+3*natom+3]=z[3*natom+3:3*natom+3*natom+3]
+end
+
+
+
 
 
 """

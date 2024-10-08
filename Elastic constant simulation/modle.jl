@@ -5,10 +5,10 @@ using StaticArrays
 using LinearAlgebra
 # using Makie
 using GLMakie 
-
+using Base.Threads
 export Atom, UnitCell, copycell, visualize_unitcell_atoms, Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,kb,visualize_unitcell_atoms0,filtercell,cell_forceij!,cell_forcei!,force_tensor!,cell_temp
     
-
+global const kb=1.0
 
 """
 原子类型
@@ -18,7 +18,7 @@ export Atom, UnitCell, copycell, visualize_unitcell_atoms, Interaction, cell_ene
 :param cn: 配位数
 :param bound 边界状态 [1,1,0]表示处于x,y的0,0边界上 cn=2^(bound),[-1,-1,-1]表示位于a,b,c
 """
-struct Atom
+mutable struct Atom
     position::Vector{Float64}
     momentum::Vector{Float64}
     mass::Float64
@@ -354,7 +354,7 @@ end
 :param cell: 晶胞
 """
 function cell_temp(cell::UnitCell)
-    kb=1.38e-23
+    global kb
     Ek=0.0
     for atom in cell.atoms
         p=atom.momentum
@@ -480,7 +480,7 @@ end
 """
 function cell_forcei(cell::UnitCell,interaction::Interaction,i::Int)
     forcei=zeros(3)
-        for j in 1:length(cell.atoms)
+        @threads for j in 1:length(cell.atoms)
             if i!=j
                 forcei+=cell_forceij(cell,interaction,i,j)
             end
@@ -497,9 +497,10 @@ end
 function force_tensor(cell::UnitCell,interaction::Interaction)
     tensor=zeros(3,3)
     v=cell.Volume
-    for a in 1:3
-        for b in 1:3
-            for i in 1:length(cell.atoms)
+    # @threads 
+    for i in 1:length(cell.atoms)
+        for a in 1:3
+            for b in 1:3
                 forcei=cell_forcei(cell,interaction,i)
                 atom=cell.atoms[i]
                 tensor[a,b]+=forcei[a]*atom.position[b]/2+atom.momentum[a]*atom.momentum[b]/atom.mass
