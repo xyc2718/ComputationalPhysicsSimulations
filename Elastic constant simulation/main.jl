@@ -76,18 +76,16 @@ lattice_vectors = (Matrix([
     0.0 0.0 minlt] #a3
 ))
 atoms = [Atom(pos) for pos in atom_positions]
-cell=UnitCell(lattice_vectors,atoms)
-cpcell=copycell(cell, cp...)
-fcell=filtercell(cpcell)
 
+fcell=initcell(10.0,10.0,atoms,interaction,cp=[3,3,3],Prg=[0.03,8])
 println("energt=",cell_energy0(fcell,interaction,ifnormalize=false))
 println("forcetensor=",(force_tensor(fcell,interaction)))
 println("pressure=",pressure_int(fcell,interaction))
 fig=visualize_unitcell_atoms(fcell)
 display(fig)
 
-thermostat = Thermostat(10.0, 10000000.0, 1, 0.0)
-barostat=Barostat(1000.0,10000000.0,fcell.Volume,0.0)
+thermostat = Thermostat(10.0, 100000.0, 0.0, 0.0)
+barostat=Barostat(10.0,100000.0,fcell.Volume,0.0)
 println(pressure_int(fcell,interaction))
 z=cell2z(fcell,thermostat,barostat);
 
@@ -101,7 +99,7 @@ open("data_z.txt", "a") do io
         # 将 z 写入文件
         writedlm(io, z')
         write(io, "\n")
-        if i%1==0
+        if i%10==0
             p=pressure_int(tpcell,interaction)
             T=cell_temp(tpcell)
 

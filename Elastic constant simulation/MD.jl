@@ -1,5 +1,5 @@
 module MD
-
+using Distributions
 using StaticArrays
 # using Plots
 using LinearAlgebra
@@ -9,7 +9,7 @@ using ..Model
 using Base.Threads
     
 
-export pressure_int,Thermostat,Barostat,Hz,symplectic_matrix,RK3_step!,z2atoms,z2cell,cell2z,dUdV_default,update_cell!  
+export pressure_int,Thermostat,Barostat,Hz,symplectic_matrix,RK3_step!,z2atoms,z2cell,cell2z,dUdV_default,update_cell! ,zmod!,initT!,initcell
 ###MD
 
 
@@ -34,10 +34,11 @@ return Pint
 function pressure_int(cell::UnitCell,interaction::Interaction,dUdV::T=dUdV_default) where T
     v=cell.Volume
     Pint=0.0
+    lt=cell.lattice_vectors
     for i in 1:length(cell.atoms)
         atom=cell.atoms[i]
         pm=atom.momentum
-        ri=atom.position
+        ri=lt*atom.position
         fi=cell_forcei(cell,interaction,i)
         Pint+=dot(pm,pm)/atom.mass+dot(ri,fi)-3*v*dUdV(atom.position,v)   
     end
@@ -147,8 +148,14 @@ function RK3_step!(z::Vector{Float64},dt::Float64,cell::UnitCell, interaction::I
     k3=Hz(zr,cell,interaction,thermostat,barostat,dUdV=dUdV,kb=kb)
     z.=z+(dt/6).*(k1.+4*k2.+k3)
     update_cell!(z,cell)
-    a,b,c=cell.lattice_vectors*cell.copy
+    zmod!(z,cell)
+    
+
+end
+
+function zmod!(z::Vector{Float64},cell::UnitCell)
     natom=length(cell.atoms)
+    a,b,c=cell.lattice_vectors*cell.copy
     for i in 1:natom
         z[3*i-2]=mod(z[3*i-2],a)
         z[3*i-1]=mod(z[3*i-1],b)
@@ -161,9 +168,8 @@ function RK3_step!(z::Vector{Float64},dt::Float64,cell::UnitCell, interaction::I
     z[3*natom+2]=z[3*natom+2]
     z[2*3*natom+3]=z[2*3*natom+3]
     z[2*3*natom+4]=z[2*3*natom+4]
+    
 end
-
-
 """
 将z转化为atoms
 :param z: z=[r1...rn,Rt,Rv,p1,...pn,Pt,Pv]
@@ -207,6 +213,9 @@ function update_cell!(z::Vector{Float64},cell::UnitCell)
 ###这里是否需要修改体积还有待考虑，现在加了p会向-inf发散  
     v=z[3*natom+2]
     v0=cell.Volume
+    if v<0
+        println("v<0 at v=$v")
+    end
     ap=((v/v0)^(1/3)) 
     ltm=cell.lattice_vectors.*ap
     cell.lattice_vectors=ltm
@@ -236,6 +245,85 @@ function cell2z(cell::UnitCell,thermostat::Thermostat,barostat::Barostat)
     pl=[atom.momentum for atom in cell.atoms];
     z=vcat(vcat(rl...),thermostat.Rt,barostat.V,vcat(pl...),thermostat.Pt,barostat.Pv);
     return z
+end
+
+
+
+
+
+function initT!(T::Float64,cell::UnitCell) 
+    m=cell.atoms[1].mass
+    kb=1.0
+    natom=length(cell.atoms)
+    sigma=sqrt(kb*T/m)
+    Ekstd=3*natom*kb*T/2
+    for i in 1:natom
+        cell.atoms[i].momentum = rand(Normal(0,sigma),3) 
+    end
+    Ek=0.0
+    for i in 1:natom
+        Ek+=0.5*norm(cell.atoms[i].momentum)^2/m
+    end
+
+    for i in 1:natom
+        cell.atoms[i].momentum=cell.atoms[i].momentum.*sqrt(Ekstd/Ek)
+    end
+end
+
+
+function initcell(P::Float64,T::Float64,atoms::Vector{Atom},interaction::Interaction;cp::Vector{Int}=[3,3,3],Prg::Vector{Float64}=[0.05,3.0])
+    m=atoms[1].mass
+    kb=1.0
+    natom=length(atoms)
+    a,b=Prg
+    for i in 1:100
+        lt=a
+        lattice_vectors = (Matrix([
+                            lt 0.0 0.0; #a1
+                            0.0 lt 0.0; #a2
+                            0.0 0.0 lt] #a3
+                        ))
+        cell=UnitCell(lattice_vectors,atoms)
+        cpcell=copycell(cell,cp...)
+        fcell=filtercell(cpcell)
+        initT!(T,fcell)
+        pa=pressure_int(fcell,interaction)-P
+        
+        lt=b
+        lattice_vectors = (Matrix([
+                            lt 0.0 0.0; #a1
+                            0.0 lt 0.0; #a2
+                            0.0 0.0 lt] #a3
+                        ))
+        cell=UnitCell(lattice_vectors,atoms)
+        cpcell=copycell(cell,cp...)
+        fcell=filtercell(cpcell)
+        initT!(T,fcell)
+        pb=pressure_int(fcell,interaction)-P
+        if pa*pb>0
+            throw("Pa,Pb符号相同,Pa=$pa,Pb=$pb")
+        end
+        c=(a+b)/2
+        lt=c
+        lattice_vectors = (Matrix([
+                            lt 0.0 0.0; #a1
+                            0.0 lt 0.0; #a2
+                            0.0 0.0 lt] #a3
+                        ))
+        cell=UnitCell(lattice_vectors,atoms)
+        cpcell=copycell(cell,cp...)
+        fcell=filtercell(cpcell)
+        initT!(T,fcell)
+        pc=pressure_int(fcell,interaction)-P
+        if abs(pc)<1e-2
+            return fcell
+        end
+        if pa*pc<0
+            b=c
+        else
+            a=c
+        end
+    end
 end
 end
 

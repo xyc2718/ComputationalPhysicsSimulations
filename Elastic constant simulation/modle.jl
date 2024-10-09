@@ -354,11 +354,11 @@ end
 :param cell: 晶胞
 """
 function cell_temp(cell::UnitCell)
-    global kb
+    kb=1.0
     Ek=0.0
     for atom in cell.atoms
         p=atom.momentum
-        Ek+=sum(p.^2)/(atom.mass)
+        Ek+=sum(p.^2)/(atom.mass)/2
     end
     return 2*Ek/(3*kb*length(cell.atoms))    
 end
