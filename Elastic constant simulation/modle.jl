@@ -49,7 +49,7 @@ end
 :param lattice_vectors: 晶格矢量
 :param atoms: 原子数组
 :param copy: 晶胞复制次数,default=[1,1,1]
-:param Volume: 晶胞体积,default=det(lattice_vectors)*copy[1]*copy[2]*copy[3]
+:param Volume: 晶胞体积,default=det(lattice_vectors)*copy[1]*copy[2]*copy[3]*8
 """
 mutable struct UnitCell
     lattice_vectors::Matrix{Float64}
@@ -156,9 +156,9 @@ function visualize_unitcell_atoms(cell::UnitCell;markersize=10,veccolor=:blue,li
     end
     rg=maximum(cell.lattice_vectors*cell.copy)
     rgmin=minimum(cell.lattice_vectors*cell.copy)
-    xlims!(ax, 0, rg)
-    ylims!(ax, 0, rg)
-    zlims!(ax, 0, rg)
+    xlims!(ax, -rg, rg)
+    ylims!(ax, -rg, rg)
+    zlims!(ax, -rg, rg)
     return fig
 end
 
@@ -360,7 +360,7 @@ function cell_temp(cell::UnitCell)
         p=atom.momentum
         Ek+=sum(p.^2)/(atom.mass)/2
     end
-    return 2*Ek/(3*kb*length(cell.atoms))    
+    return 2*Ek/(3*kb*(length(cell.atoms)-1))    
 end
 
 """
