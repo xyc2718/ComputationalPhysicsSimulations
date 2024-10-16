@@ -51,7 +51,7 @@ TW=1000
 HooverChainN=4
 dt=0.001
 maxstep=1000000
-cp=[2,2,2]
+cpc=[2,2,2]
 dumpsequence=1
 printsequence=10
 projectname="AdHv_444_Ts=1_ps=100"
@@ -59,7 +59,7 @@ projectname="AdHv_444_Ts=1_ps=100"
 
 
 
-inicell=initcell(Pb,Tb,atoms,interaction,cp=cp,Prg=[0.4,6.0])
+inicell=initcell(Pb,Tb,atoms,interaction,cp=cpc,Prg=[0.4,6.0])
 println("inipressure=$(pressure_int(inicell,interaction)),temp=$(cell_temp(inicell))")
 cell=deepcopy(inicell)
 natom=length(inicell.atoms)
@@ -76,16 +76,36 @@ end
 # println(thermostatchain)
 barostat=Barostat(Ps,Ws,cell.Volume,0.0)
 
-if !isdir("output\\$projectname")
-    mkpath("output\\$projectname")
-    println("Directory $projectname created.\n")
+# if !isdir("output\\$projectname")
+#     mkpath("output\\$projectname")
+#     println("Directory $projectname created.\n")
+# else
+#     println("Directory $projectname already exists.\n")
+# end
+
+
+basepath="output\\$projectname"
+if !isdir(basepath)
+    mkpath(basepath)
+    println("Directory $basepath created.\n")
 else
-    println("Directory $projectname already exists.\n")
+    local counter = 1
+    local newpath = basepath * "_$counter"
+    while isdir(newpath)
+        counter += 1
+        newpath = basepath * "_$counter"
+    end
+    mkpath(newpath)
+    println("Directory exists,new Directories $newpath created.\n")
+    basepath=newpath
 end
+
+
+
 ##logfile
-open("output\\$projectname\\Config.txt", "w") do logfile
+open("$basepath\\Config.txt", "w") do logfile
     write(logfile, "projectname=$projectname\n")
-    write(logfile,"IntergrateMethod:Liouville,Interaction:LJ")
+    write(logfile,"IntergrateMethod:Liouville,Interaction:LJ\n")
     write(logfile, "$natom  atoms\n")
     write(logfile, "Ts=$Ts\n")
     write(logfile, "Ps=$Ps\n")
@@ -96,7 +116,7 @@ open("output\\$projectname\\Config.txt", "w") do logfile
     write(logfile, "Number of HooverChain=$HooverChainN\n")
     write(logfile, "TQ=$TQ\n")
     write(logfile, "TW=$TW\n")
-    write(logfile, "cpsize=$cp\n")
+    write(logfile, "cpsize=$cpc\n")
     write(logfile, "maxstep=$maxstep\n")
     write(logfile, "dt=$dt\n")
     write(logfile, "ct=$ct\n")
@@ -105,8 +125,8 @@ open("output\\$projectname\\Config.txt", "w") do logfile
 end
 
 
-open("output\\$projectname\\Log.txt", "w") do io
-    jldopen("output\\$projectname\\DumpCell.JLD2","w") do iojl
+open("$basepath\\Log.txt", "w") do io
+    jldopen("$basepath\\DumpCell.JLD2","w") do iojl
 for step in 1:maxstep
 
     Andersen_Hoover_NPT_step!(cell,interaction,thermostatchain,barostat,dt,nresn=3)

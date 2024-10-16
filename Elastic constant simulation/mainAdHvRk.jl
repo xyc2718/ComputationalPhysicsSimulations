@@ -54,9 +54,9 @@ dumpsequence=1
 printsequence=10
 TQ=10
 TW=1000
-
+cpc=[2,2,2]
 interaction = Interaction(lj, Flj, ct, 0.1)
-inicell=initcell(Pb,Tb,atoms,interaction,cp=[2,2,2],Prg=[0.03,10.0])
+inicell=initcell(Pb,Tb,atoms,interaction,cp=cpc,Prg=[0.03,10.0])
 println("initemp=$(cell_temp(inicell))")
 println("inipressure=$(pressure_int(inicell,interaction))")
 println(inicell.lattice_vectors)
@@ -67,18 +67,35 @@ thermostat = Thermostat(Ts, Qs, 0.0, 0.0)
 barostat=Barostat(Ps,Ws,inicell.Volume,0.0)
 
 
-if !isdir("output\\$projectname")
-    mkpath("output\\$projectname")
-    println("Directory $projectname created.\n")
+# if !isdir("output\\$projectname")
+#     mkpath("output\\$projectname")
+#     println("Directory $projectname created.\n")
+# else
+#     println("Directory $projectname already exists.\n")
+# end
+
+basepath="output\\$projectname"
+if !isdir(basepath)
+    mkpath(basepath)
+    println("Directory $basepath created.\n")
 else
-    println("Directory $projectname already exists.\n")
+    local counter = 1
+    local newpath = basepath * "_$counter"
+    while isdir(newpath)
+        counter += 1
+        newpath = basepath * "_$counter"
+    end
+    mkpath(newpath)
+    println("Directory exists,new Directories $newpath created.\n")
+    basepath=newpath
 end
+
 ##logfile
-open("output\\$projectname\\Config.txt", "w") do logfile
+open("$basepath\\Config.txt", "w") do logfile
     write(logfile, "projectname=$projectname\n")
     write(logfile,"IntergrateMethod:RK3,Interaction:LJ")
     write(logfile, "$natom  atoms\n")
-    write(logfile, "Md for Fcc Cu")
+    write(logfile, "Md for Fcc Cu\n")
     write(logfile, "Ts=$Ts\n")
     write(logfile, "Ps=$Ps\n")
     write(logfile, "Tb=$Tb\n")
@@ -87,7 +104,7 @@ open("output\\$projectname\\Config.txt", "w") do logfile
     write(logfile, "Ws=$Ws\n")
     write(logfile, "TQ=$TQ\n")
     write(logfile, "TW=$TW\n")
-    write(logfile, "cpsize=$cp\n")
+    write(logfile, "cpsize=$cpc\n")
     write(logfile, "maxstep=$maxstep\n")
     write(logfile, "dt=$dt\n")
     write(logfile, "ct=$ct\n")
@@ -95,8 +112,8 @@ open("output\\$projectname\\Config.txt", "w") do logfile
     write(logfile, "printsequence=$printsequence\n")
 end
 
-open("output\\$projectname\\Log.txt", "w") do io
-    jldopen("output\\$projectname\\DumpCell.JLD2","w") do iojl
+open("$basepath\\Log.txt", "w") do io
+    jldopen("$basepath\\DumpCell.JLD2","w") do iojl
 cell=deepcopy(inicell)
 z=cell2z(cell,thermostat,barostat);
 for i in 1:maxstep

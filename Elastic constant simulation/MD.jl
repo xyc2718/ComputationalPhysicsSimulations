@@ -21,7 +21,7 @@ using ..Model
 using Base.Threads
 using JLD2
 
-export pressure_int,Thermostat,Barostat,Hz,RK3_step!,z2atoms,z2cell,cell2z,dUdV_default,update_cell! ,zmod!,initT!,initcell,dUdV_default,Nhcpisoint!,Andersen_Hoover_NPT_step!,LA_step!
+export pressure_int,Thermostat,Barostat,Hz,RK3_step!,z2atoms,z2cell,cell2z,dUdV_default,update_cell!,initT!,initcell,dUdV_default,Nhcpisoint!,Andersen_Hoover_NPT_step!,LA_step!
 
 
 """
@@ -195,15 +195,15 @@ function RK3_step!(z::Vector{Float64},dt::Float64,cell::UnitCell, interaction::I
     k1=Hz(z,cell,interaction,thermostat,barostat)
     zr=z+(dt/2).*k1
     update_cell!(zr,cell)
-    zmod!(zr,cell)
+    updatezr!(zr,cell)
     k2=Hz(zr,cell,interaction,thermostat,barostat)
     zr=z-dt.*k1+(2*dt).*k2
     update_cell!(zr,cell)
-    zmod!(zr,cell)
+    updatezr!(zr,cell)
     k3=Hz(zr,cell,interaction,thermostat,barostat)
     z.=z+(dt/6).*(k1.+4*k2.+k3)
     update_cell!(z,cell)
-    zmod!(z,cell)
+    updatezr!(z,cell)
     dim=Int(length(z)/2)
     thermostat.Pt=z[2*dim-1]
     barostat.Pv=z[2*dim]
@@ -211,18 +211,6 @@ function RK3_step!(z::Vector{Float64},dt::Float64,cell::UnitCell, interaction::I
     barostat.V=z[dim]
     end
 
-"""
-根据cell,将z坐标转化回元胞内
-"""
-function zmod!(z::Vector{Float64},cell::UnitCell)
-    natom=length(cell.atoms)
-    a,b,c=cell.lattice_vectors*cell.copy
-    for i in 1:natom
-        z[3*i-2]=mod(z[3*i-2]+a,2*a)-a
-        z[3*i-1]=mod(z[3*i-1]+b,2*b)-b
-        z[3*i]=mod(z[3*i]+c,2*c)-c
-    end
-end
 
 """
 根据将z转化为atoms
@@ -276,9 +264,9 @@ function update_cell!(z::Vector{Float64},cell::UnitCell)
     a,b,c=cell.copy
     for i in 1:natom
         ri=inv(cell.lattice_vectors)*rl[3*i-2:3*i]
-        ri[1]=mod(ri[1]-a,2*a)+a
-        ri[2]=mod(ri[2]-b,2*b)+b
-        ri[3]=mod(ri[3]-c,2*c)+c
+        ri[1]=mod(ri[1]+a,2*a)-a
+        ri[2]=mod(ri[2]+b,2*b)-b
+        ri[3]=mod(ri[3]+c,2*c)-c
         cell.atoms[i].position=ri
         cell.atoms[i].momentum=pl[3*i-2:3*i]
     end
@@ -307,8 +295,15 @@ function cell2z(cell::UnitCell,thermostat::Thermostat,barostat::Barostat)
     return z
 end
 
-
-
+"""
+根据cell修改z中的r
+"""
+function updatezr!(z,cell::UnitCell)    
+    ltv=cell.lattice_vectors
+    for i in  eachindex(cell.atoms)
+        z[3*i-2:3*i].=ltv*cell.atoms[i].position
+    end
+end
 
 
 function initT!(T::Float64,cell::UnitCell) 
