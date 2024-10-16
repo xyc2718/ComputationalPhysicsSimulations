@@ -43,7 +43,7 @@ end
 
 
 projectname="AdHvRk3_444_Ts=1_p=100"
-ct=5.0
+ct=3.0
 Ts=1.0
 Ps=100.0
 dt=0.001

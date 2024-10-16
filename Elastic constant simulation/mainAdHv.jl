@@ -39,7 +39,7 @@ function Flj(r::Vector{Float64})
     return 24*(2/rn^14-1/rn^8)*r
 end
 
-ct=5.0
+ct=3.0
 interaction = Interaction(lj, Flj, ct, 0.1)
 
 Ts=1.0
