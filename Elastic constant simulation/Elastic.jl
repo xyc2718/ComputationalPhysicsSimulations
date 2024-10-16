@@ -3,12 +3,15 @@ module Elastic
 include("modle.jl")
 include("MD.jl")
 include("cellmin.jl")
+include("mema.jl")
+
 using .Model
+using .MEMA
 using .MD
 using .cellmin
 
 
-modules = [Model, MD, cellmin]
+modules = [Model, MD, cellmin, MEMA]
 
 for mod in modules
     for name in names(mod, all=true)

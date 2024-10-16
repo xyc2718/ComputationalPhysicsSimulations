@@ -1,6 +1,11 @@
 
+"""
+该势能计算过于复杂,暂时放弃,请使用EMA
+
+Ref:Lee, B.-J., Shim, J.-H., & Baskes, M. I. (2003). Semiempirical atomic potentials for the fcc metals Cu, Ag, Au, Ni, Pd, Pt, Al, and Pb based on first and second nearest-neighbor modified embedded atom method. Physical Review B, 68(14), 144112. https://doi.org/10.1103/PhysRevB.68.144112
+"""
 module MEMA
-    
+
 using StaticArrays
 
 using LinearAlgebra

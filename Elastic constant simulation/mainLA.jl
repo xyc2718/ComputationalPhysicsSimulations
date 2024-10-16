@@ -58,10 +58,6 @@ y=interaction.cutenergy.(x)
 lines(x,y)
 
 
-function update_celli!(rl,pl,i::Int,cell::UnitCell)
-    cell.atoms[i].position=inv(cell.lattice_vectors)*rl
-    cell.atoms[i].momentum=pl
-end
 
 Ts=1.0
 Ps=100.0
@@ -75,97 +71,11 @@ barostat=Barostat(Ps,0.01,fcell.Volume,0.0)
 open("dump1.txt", "w") do io
     jldopen("dumpcell.jld2", "w") do file
 for i in 1:1000000
-    # LA_step!(fcell,interaction,barostat,4,0.001,1.0,gamma0=0.01,gammav=0.01)
-    T=Ts
-        dt=0.001
-        n=4
-        gamma0=0.1
-        gammav=0.001
-   
-        kb=1.0
-        dist=Normal(0,1)
-        
-        Pe=barostat.Pe
-        ddt=dt/n
-        natom=length(fcell.atoms)
-        pl=fill(zeros(3),(2*n+1,natom))
-        rl=fill(zeros(3),(2*n+1,natom))
-        Pint=pressure_int(fcell,interaction)
-        Rv=barostat.Pv
-        
-        Rvdt2=Rv+(Pint-Pe)*dt/2+sqrt(kb*T*gammav*dt)*rand(dist)-gammav*Rv*dt/2/barostat.W
-        
-        
-        
-        V0=fcell.Volume
-        Vdt2=V0+Rvdt2*dt/2/barostat.W
-        Vdt=Vdt2+Rvdt2*dt/2/barostat.W
-        # println("$Rv,$(Rvdt2*dt/2/barostat.W)")
-        mi=fcell.atoms[1].mass
-        fdt2=fill(zeros(3),natom)
-        fcell.Volume=Vdt
-        barostat.V=Vdt
-        ltv=fcell.lattice_vectors
-        
-        
-        for i in 1:natom
-            pl[1,i]=fcell.atoms[i].momentum
-            rl[1,i]=ltv*fcell.atoms[i].position
-        end
-
-        
-        fcell.lattice_vectors=fcell.lattice_vectors.*(Vdt/V0)^(1/3)
-
-        for j in 1:n-1
-            fl=fill(zeros(3),length(fcell.atoms))
-            for i in 1:length(fcell.atoms)
-                fi=cell_forcei(fcell,interaction,i)
-                fl[i]=fi
-            end
-            for i in 1:length(fcell.atoms)
-                # if j==1
-                #     pl[2*n+1,i]=pl[1,i].+(dt/2)*fl[i].+sqrt(kb*T*gamma0*dt)*rand(dist,3)-(gamma0*dt/2/mi)*pl[1,i]
-                # end
-                pl[2*j,i]=pl[2*j-1,i]+(ddt/2).*fl[i]+sqrt(kb*T*gamma0*ddt)*rand(dist,3)-(gamma0*ddt/2/mi)*pl[j,i]
-                rl[2*j+1,i]=rl[2*j-1,i]+(ddt/2).*pl[2*j,i]*ddt/mi
-                update_celli!(rl[2*j+1,i],pl[2*j,i],i,fcell)
-            end
-        
-            fl=fill(zeros(3),length(fcell.atoms))
-            for i in 1:length(fcell.atoms)
-                fi=cell_forcei(fcell,interaction,i)
-                fl[i]=fi
-            end
-        
-            for i in 1:length(fcell.atoms)
-                pl[2*j+1,i]=pl[2*j,i]+ddt/2*fl[i]+sqrt(kb*T*gamma0*ddt)*rand(dist,3)-(gamma0*ddt/2/mi)*pl[2*j,i]
-            end   
-        end
-        for i in 1:length(fcell.atoms)
-            mi=fcell.atoms[i].mass
-            rl[2*n+1,i]=rl[2*n-1,i]+((V0/Vdt2)^(2/3)/mi*ddt).*pl[2*n,i]
-            rl[2*n+1,i]=rl[2*n+1,i].*((Vdt/V0)^(1/3))
-            pl[n+1,i]=pl[n+1,i].*((V0/Vdt)^(1/3))
-        end
-        
-        invlt=inv(fcell.lattice_vectors)
-        for i in 1:length(fcell.atoms)
-            fcell.atoms[i].position=invlt*rl[2*n+1,i]
-        end
-        
-        for i in 1:length(fcell.atoms)
-            fi=cell_forcei(fcell,interaction,i)
-            pl[2*n+1,i]=pl[n+1,i]+(dt/2).*fi-(gamma0*dt/2/mi)*pl[n+1,i]+sqrt(kb*T*gammav*dt)*rand(dist,3)
-        end
-        
-        for i in 1:length(fcell.atoms)
-            fcell.atoms[i].momentum=pl[2*n+1,i]
-        end
-        
-        Pint=pressure_int(fcell,interaction)
-        Rvdt=Rvdt2+(Pint-Pe).*(dt/2)+sqrt(kb*T*gammav*dt)*rand(dist)-gammav*Rvdt2*dt/2/barostat.W
-        barostat.Pv=Rvdt
-*
+    dt=0.001
+    n=4
+    gamma0=0.1
+    gammav=0.001
+    LA_step!(fcell,interaction,dt,Ts,barostat,gamma0,gammav,n)
     if i%100==0
         z=[i,(pressure_int(fcell,interaction)),(fcell.Volume),(cell_temp(fcell)),(barostat.Pv)]
         writedlm(io, z')

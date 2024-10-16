@@ -1,3 +1,8 @@
+"""
+@author:XYC
+@email:22307110070@m.fudan.edu.cn
+The basic types and properties of unit cells are implemented and calculated here.
+"""
 module Model
     
 using StaticArrays
@@ -12,7 +17,7 @@ global const kb=1.0
 
 """
 原子类型
-:param position: 原子位置
+:param position: 原子位置,注意我们采用晶格坐标系,以便于对晶胞进行形变
 :param momentum: 原子动量
 :param mass: 原子质量
 :param cn: 配位数
@@ -46,10 +51,10 @@ end
 
 """
 晶胞类型
-:param lattice_vectors: 晶格矢量
-:param atoms: 原子数组
-:param copy: 晶胞复制次数,default=[1,1,1]
-:param Volume: 晶胞体积,default=det(lattice_vectors)*copy[1]*copy[2]*copy[3]*8
+:param lattice_vectors: Matrix{Float64} 晶格矢量
+:param atoms:Vector{Atom} 原子数组
+:param copy:Vector{Int} 晶胞复制次数,default=[1,1,1],表示以原点为中心复制4个元胞,这是为了保证NPT系综元胞体积变化的各项同性
+:param Volume: Float64 晶胞体积,default=det(lattice_vectors)*copy[1]*copy[2]*copy[3]*8 初始化时可自动生成
 """
 mutable struct UnitCell
     lattice_vectors::Matrix{Float64}
@@ -59,15 +64,15 @@ mutable struct UnitCell
     function UnitCell(lattice_vectors::Matrix{Float64}, atoms::Vector{Atom}, copy::Vector{Int})
         # println(copy[1]*copy[2]*copy[3])
         # println(det(lattice_vectors))
-        v=copy[1]*copy[2]*copy[3]*det(lattice_vectors)
+        v=copy[1]*copy[2]*copy[3]*det(lattice_vectors)*8
         new(lattice_vectors, atoms,copy,v)
     end
     function UnitCell(lattice_vectors::Matrix{Float64}, atoms::Vector{Atom})
-        v=det(lattice_vectors)
+        v=det(lattice_vectors)*8
         new(lattice_vectors, atoms, Vector([1,1,1]),v)
     end
     function UnitCell(lattice_vectors::Adjoint{Float64, Matrix{Float64}}, atoms::Vector{Atom})
-        v=det(lattice_vectors)
+        v=det(lattice_vectors)*8
         new(lattice_vectors, atoms, Vector([1,1,1]),v)
     end
 end
@@ -75,8 +80,8 @@ end
 
 """
 复制晶胞
-:param cell: 晶胞
-:param a,b,c: 复制次数
+:param cell:UnitCell 晶胞
+:param a,b,c:Int 复制次数,其将关于原点对称复制8*abc个,并赋予bound和cn
 :param tol: 误差,default=0.001,用于计算配位数
 """
 function copycell(cell::UnitCell,a::Int,b::Int,c::Int,tol::Float64=0.001)::UnitCell
@@ -84,9 +89,9 @@ function copycell(cell::UnitCell,a::Int,b::Int,c::Int,tol::Float64=0.001)::UnitC
     pl=Vector{Vector{Float64}}([])
     cp=[a,b,c]
     for atom in cell.atoms
-        for i in 0:a-1
-            for j in 0:b-1
-                for k in 0:c-1
+        for i in -a:a-1
+            for j in -b:b-1
+                for k in -c:c-1
                     newp=atom.position+Vector([i,j,k])
                     pm=atom.momentum
                     m=atom.mass
@@ -97,11 +102,12 @@ function copycell(cell::UnitCell,a::Int,b::Int,c::Int,tol::Float64=0.001)::UnitC
                     bd=Vector{Int}([0,0,0])
                     ct=0
                     for i in 1:3
-                        bound=cp[i]*1.0
-                        if abs(bound-newp[i])<tol
+                        bound1=cp[i]*1.0
+                        bound2=cp[i]*(-1.0)
+                        if abs(bound1-newp[i])<tol
                                 bd[i]-=1
                                 ct+=1
-                        elseif abs(newp[i])<tol
+                        elseif abs(bound2-newp[i])<tol
                                 bd[i]+=1
                                 ct+=1
                         end
@@ -117,6 +123,11 @@ function copycell(cell::UnitCell,a::Int,b::Int,c::Int,tol::Float64=0.001)::UnitC
     return UnitCell(cell.lattice_vectors,atoms,Vector([a,b,c]))
 end
 
+"""
+过滤晶胞中的边界原子
+:param cell: UnitCell晶胞
+:return: 过滤后的晶胞
+"""
 function filtercell(cell::UnitCell)
     natom=length(cell.atoms)
     atoms=Vector{Atom}([])
@@ -134,8 +145,13 @@ function color_map(cn)
         colors = [:red, :green, :blue, :yellow, :purple, :orange, :cyan, :magenta]
         return colors[mod(cn - 1, length(colors)) + 1]
 end
+
 """
-可视化晶胞原子
+可视化晶胞原子,并标注晶格向量
+:param cell: UnitCell晶胞
+:param markersize:Int 标记大小
+:param veccolor: 向量颜色
+:param linewith: 线宽
 """
 function visualize_unitcell_atoms(cell::UnitCell;markersize=10,veccolor=:blue,linewith=0.1)::Figure
     fig =GLMakie.Figure(size = (800, 600))
@@ -163,7 +179,10 @@ function visualize_unitcell_atoms(cell::UnitCell;markersize=10,veccolor=:blue,li
 end
 
 """
-可视化晶胞原子
+可视化晶胞原子,用于测试原子因某些原因跑出周期范围,并可标记原子序号,用于调试
+:param cell:UnitCell
+:param markersize:Int 标记大小
+:param iftext:Bool 是否标记原子序号
 """
 function visualize_unitcell_atoms0(cell::UnitCell;markersize=10,iftext::Bool=false)::Figure
     fig =GLMakie.Figure(size = (800, 600))
@@ -254,7 +273,8 @@ end
 
 
 """
-计算晶胞中i,j原子之间的相互作用能
+计算晶胞中i,j原子之间的相互作用能,遍历周期,用于测试和cutoff>box/2的情况,且会自动忽略间距过小<tol的原子,通常使用cell_energyij0
+之前调试时用的，现在基本弃用
 :param cell: 晶胞
 :param interaction: 相互作用
 :param i,j: 原子序号
@@ -266,7 +286,7 @@ function cell_energyij(cell::UnitCell, interaction::Interaction, i::Int, j::Int;
     cutoff = interaction.cutoff
     atomi = cell.atoms[i]
     atomj = cell.atoms[j]
-    a, b, c = cell.copy
+    a, b, c = cell.copy*2
     if maxiter == -1
         maxiter = Int(ceil(cutoff / minimum(cell.lattice_vectors * @SVector [1, 1, 1]))) 
     end
@@ -323,7 +343,7 @@ function cell_energyij(cell::UnitCell, interaction::Interaction, i::Int, j::Int;
 end
 
 """
-计算晶胞的总能量
+计算晶胞的总能量,遍历周期,用于测试和cutoff>box/2的情况,通常使用cell_energy0,基本弃用
 :param cell: 晶胞
 :param interaction: 相互作用
 :param ifnormize: 是否归一化，默认为 true,将用配位数对能量进行归一化
@@ -350,7 +370,7 @@ function cell_energy(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=t
 end
 
 """
-计算cell温度
+计算cell温度,减去了质心动能
 :param cell: 晶胞
 """
 function cell_temp(cell::UnitCell)
@@ -364,9 +384,13 @@ function cell_temp(cell::UnitCell)
 end
 
 """
-采用邻近最小像,assert:cutoff<box/2
+采用邻近最小像计算cell能量,assert:cutoff<box/2,若晶胞原子有重复,iffilter=true将根据bound属性去重
+:param cell: 晶胞
+:param interaction: 相互作用
+:param i,j: 原子序号、
+:param ifnormize: 是否归一化，默认为 true,将用配位数对能量进行归一化
 """
-function cell_energyij0(cell::UnitCell, interaction::Interaction, i::Int, j::Int; ifnormalize::Bool=true)
+function cell_energyij0(cell::UnitCell, interaction::Interaction, i::Int, j::Int; ifnormalize::Bool=false,iffilter::Bool=false)
     cutoff = interaction.cutoff
     atomi = cell.atoms[i]
     atomj = cell.atoms[j]
@@ -378,13 +402,15 @@ function cell_energyij0(cell::UnitCell, interaction::Interaction, i::Int, j::Int
     for k in 1:3
         rijk=rij[k]
         cpk=cp[k]
-        # if bd[k]==1
-        #     continue
-        # end
-        if rijk>cpk/2
-                rij[k]=rijk-cpk
-        elseif rijk<-cpk/2
-                rij[k]=rijk+cpk
+        if iffilter
+            if bd[k]==1
+                continue
+            end
+        end
+        if rijk>cpk
+                rij[k]=rijk-cpk*2.0
+        elseif rijk<-cpk
+                rij[k]=rijk+cpk*2.0
         end
     end
     # println("ij0 cal $rij")
@@ -411,18 +437,19 @@ end
 :param maxiter: 最大迭代次数，默认为 -1,将自动计算
 :param tol: 误差，默认为 1e-3 用于判断div 0错误
 """
-function cell_energy0(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=true)
-    a,b,c=cell.copy
-    # if interaction.cutoff>minimum((cell.lattice_vectors*Vector([a,b,c])))
+function cell_energy0(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=false,iffilter::Bool=false)
+    # a,b,c=cell.copy
+    # if interaction.cutoff>(maximum(cell.lattice_vectors)*minimum(Vector([a,b,c])))
+    #     println(a,b,c)
     #     lv=cell.lattice_vectors*Vector([a,b,c])
     #     cutoff=interaction.cutoff
-    #     println("Warning: Cutoff $cutoff is larger than the minimum distance of the lattice vectors $lv ,energe i and Ri will be lost")
+    #     println("Warning: Cutoff $cutoff is larger than the minimum distance of the lattice vectors $lv ,energy i and Ri will be lost under rules of nearest neighbor image")
     # end
     energy=0.0
     for i in 1:length(cell.atoms)
         for j in 1:length(cell.atoms)
             if i!=j
-                energy+=cell_energyij0(cell,interaction,i,j,ifnormalize=ifnormalize)
+                energy+=cell_energyij0(cell,interaction,i,j,ifnormalize=ifnormalize,iffilter=iffilter)
                 # println("energy at $i $j is $energy")
             end
         end
@@ -431,14 +458,13 @@ function cell_energy0(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=
 end
 
 """
-计算晶胞中i,j原子之间的相互作用力
+计算晶胞中i,j原子之间的相互作用力,采用邻近最小像,assert:cutoff<box/2,若晶胞原子有重复,iffilter=true将根据bound属性去重
 :param cell: 晶胞
 :param interaction: 相互作用
 :param i,j: 原子序号
-
-这里rij其实应该是rji,一开始搞错了,故最后加符号
+这里rij其实应该是rji,一开始搞错了,故最后加负号
 """
-function cell_forceij(cell::UnitCell, interaction::Interaction, i::Int, j::Int)
+function cell_forceij(cell::UnitCell, interaction::Interaction, i::Int, j::Int;iffilter::Bool=false)
     cutoff = interaction.cutoff
     atomi = cell.atoms[i]
     atomj = cell.atoms[j]
@@ -449,13 +475,15 @@ function cell_forceij(cell::UnitCell, interaction::Interaction, i::Int, j::Int)
     for k in 1:3
         rijk=rij[k]
         cpk=cp[k]
-        # if bd[k]==1
-        #     continue
-        # end
-        if rijk>cpk/2
-                rij[k]=rijk-cpk
-        elseif rijk<-cpk/2
-                rij[k]=rijk+cpk
+        if iffilter
+            if bd[k]==1
+                continue
+            end
+        end
+        if rijk>cpk
+                rij[k]=rijk-cpk*2
+        elseif rijk<-cpk
+                rij[k]=rijk+cpk*2
         end
     end
     rij=cell.lattice_vectors*rij
@@ -467,7 +495,7 @@ function cell_forceij(cell::UnitCell, interaction::Interaction, i::Int, j::Int)
     end
 
     if any(isnan,force)
-        throw("Warning the same atoms of atom $i j=$j lead to the nan force,please check their cn")
+        throw("Warning the same atoms of atom i=$i j=$j lead to the nan force")
     end
     return -force
 end
@@ -478,11 +506,11 @@ end
 :param interaction: 相互作用
 :param i: 原子序号
 """
-function cell_forcei(cell::UnitCell,interaction::Interaction,i::Int)
+function cell_forcei(cell::UnitCell,interaction::Interaction,i::Int;iffilter::Bool=false)
     forcei=zeros(3)
-        @threads for j in 1:length(cell.atoms)
+        for j in 1:length(cell.atoms)
             if i!=j
-                forcei+=cell_forceij(cell,interaction,i,j)
+                forcei+=cell_forceij(cell,interaction,i,j,iffilter=iffilter)
             end
         end
     return forcei
@@ -490,14 +518,13 @@ end
 
 
 """
-计算晶胞的应力张量
+计算晶胞的应力张量,待加入dU/dh_i的项
 :param cell: 晶胞
 :param interaction: 相互作用
 """
 function force_tensor(cell::UnitCell,interaction::Interaction)
     tensor=zeros(3,3)
     v=cell.Volume
-    # @threads 
     for i in 1:length(cell.atoms)
         for a in 1:3
             for b in 1:3
@@ -512,7 +539,7 @@ end
 
 
 """
-计算晶胞中i,j原子之间的相互作用能
+计算晶胞中i,j原子之间的相互作用力,遍历计算,仅调试用
 :param cell: 晶胞
 :param interaction: 相互作用
 :param i,j: 原子序号
@@ -524,7 +551,7 @@ function cell_forceij!(cell::UnitCell, interaction::Interaction, i::Int, j::Int;
     cutoff = interaction.cutoff
     atomi = cell.atoms[i]
     atomj = cell.atoms[j]
-    a, b, c = cell.copy
+    a, b, c = cell.copy*2
     if maxiter == -1
         maxiter = Int(ceil(cutoff / minimum(cell.lattice_vectors * @SVector [1, 1, 1]))) 
     end
@@ -565,13 +592,10 @@ function cell_forceij!(cell::UnitCell, interaction::Interaction, i::Int, j::Int;
     return -force
 end
 
+"""
+计算晶胞中i原子的受力,遍历计算,仅调试用
+"""
 function cell_forcei!(cell::UnitCell,interaction::Interaction,i::Int;maxiter::Int=-1)
-    a,b,c=cell.copy
-    # if interaction.cutoff>minimum((cell.lattice_vectors*Vector([a,b,c])))
-    #     lv=cell.lattice_vectors*Vector([a,b,c])
-    #     cutoff=interaction.cutoff
-    #     println("Warning: Cutoff $cutoff is larger than the minimum distance of the lattice vectors $lv ,energe i and Ri will be lost")
-    # end
     force=zeros(3)
 
         for j in 1:length(cell.atoms)
@@ -585,7 +609,7 @@ function cell_forcei!(cell::UnitCell,interaction::Interaction,i::Int;maxiter::In
 end
 
 """
-计算晶胞的应力张量
+计算晶胞的应力张量,遍历周期,仅调试用
 :param cell: 晶胞
 :param interaction: 相互作用
 """

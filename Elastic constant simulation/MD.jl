@@ -1,25 +1,36 @@
+"""
+@author:XYC
+@email:22307110070@m.fudan.edu.cn
+MD for NPT ensemble,include:
+Andersen Nose-Hoover method:
+RK3_step!: Intergrate by 3 order Runge Kuta
+Andersen_Hoover_NPT_step!:Intergrate by Liouville operator and Tort Decomposition[1]
+
+Andersen Langvin method:
+LA_step!
+Reference:
+[1]Jalkanen, J., & Müser, M. H. (2015). Systematic analysis and modification of embedded-atom potentials: Case study of copper. Modelling and Simulation in Materials Science and Engineering, 23(7), 074001. https://doi.org/10.1088/0965-0393/23/7/074001
+[2]Bereau, T. (2015). Multi-timestep Integrator for the Modified Andersen Barostat. Physics Procedia, 68, 7–15. https://doi.org/10.1016/j.phpro.2015.07.101
+"""
 module MD
 using Distributions
 using StaticArrays
-# using Plots
 using LinearAlgebra
-# using Makie
 using GLMakie 
 using ..Model
 using Base.Threads
-    
+using JLD2
 
-export pressure_int,Thermostat,Barostat,Hz,symplectic_matrix,RK3_step!,z2atoms,z2cell,cell2z,dUdV_default,update_cell! ,zmod!,initT!,initcell
-###MD
+export pressure_int,Thermostat,Barostat,Hz,RK3_step!,z2atoms,z2cell,cell2z,dUdV_default,update_cell! ,zmod!,initT!,initcell,dUdV_default,Nhcpisoint!,Andersen_Hoover_NPT_step!,LA_step!
 
 
 """
-default function for dUdV
-:param r: position of atom
-:param v: volume of cell
-return 0.0
+default function for dUdV_default
+向前向后微分数值计算dU/dV;步长默认取10e-9Volume,这一项在NPT恒压中是重要的,忽略会导致恒压不稳定
+:param inicell::UnitCell
 """
 function dUdV_default(inicell::UnitCell,interaction::Interaction,dV::BigFloat=BigFloat("1e-9"))
+    # jldopen("testcell.txt","w") do iojl
     natom=length(inicell.atoms)
     V0::BigFloat=inicell.Volume
     dV0::BigFloat=inicell.Volume*dV
@@ -28,31 +39,53 @@ function dUdV_default(inicell::UnitCell,interaction::Interaction,dV::BigFloat=Bi
     ltv=inicell.lattice_vectors
     ltv1=ltv*(V1/V0)^(1/3)
     ltv2=ltv*(V2/V0)^(1/3)
+    cp=inicell.copy
 
     dcell=deepcopy(inicell)
     dcell.lattice_vectors=ltv1
-    for i in natom
-    dcell.atoms[i].position=inv(ltv1)*ltv*dcell.atoms[i].position
+    for i in 1:natom
+        for j in 1:3
+            ri=(inv(ltv1))*ltv*dcell.atoms[i].position
+            dcell.atoms[i].position[j]=mod(ri[j]+cp[j],2*cp[j])-cp[j]
+        end
+        # dcell.atoms[i].position=(ltv1)*ltv*dcell.atoms[i].position
     end
     energy1=cell_energy0(dcell,interaction)
+    # fig=visualize_unitcell_atoms0(dcell)
+    # display(fig)
 
     dcell=deepcopy(inicell)
     dcell.lattice_vectors=ltv2
-    for i in natom
-    dcell.atoms[i].position=inv(ltv2)*ltv*dcell.atoms[i].position
+    for i in 1:natom
+        for j in 1:3
+            ri=(inv(ltv2))*ltv*dcell.atoms[i].position
+            dcell.atoms[i].position[j]=mod(ri[j]+cp[j],2*cp[j])-cp[j]
+        end
+        # dcell.atoms[i].position=(ltv2)*ltv*dcell.atoms[i].position
     end
     energy2=cell_energy0(dcell,interaction)
+    # println("E1=$energy1,E2=$energy2")
+
+    # kk=0.0
+    # if energy2>1e10
+        
+    #     kk+=1.0
+    #     write(iojl, "cell_$kk", dcell)
+
+    # end
+    
 
 
   return (energy1-energy2)/dV0/2
 end
 
 
+
 """
 等效压强Pint
 :param cell: UnitCell
 :param interaction: Interaction
-:param dUdV: function for dUdV and default is dUdV_default return 0.0
+:param dUdV: function for dUdV(UnitCell,interaction)
 return Pint
 """
 function pressure_int(cell::UnitCell,interaction::Interaction,dUdV::T=dUdV_default) where T
@@ -79,13 +112,13 @@ end
 恒温器
 :param T: 目标温度
 :param Q: 热浴质量
-:param Rt: 热浴变量 (friction coefficient)
+:param Rt: 热浴变量 
 :param Pt: 热浴动量
 """
 mutable struct Thermostat
     T::Float64  # 目标温度
     Q::Float64  # 热浴质量
-    Rt::Float64  # 热浴变量 (friction coefficient)
+    Rt::Float64  # 热浴变量 
     Pt::Float64  # 热浴动量
 end
 
@@ -100,7 +133,7 @@ mutable struct Barostat
     Pe::Float64  # 目标压力
     W::Float64  # 压力浴质量
     V::Float64  # 系统体积
-    Pv::Float64  # 压力浴动量,logv
+    Pv::Float64  # 压力浴动量 logVe or Ve depend on situation
 end
 
 
@@ -111,16 +144,16 @@ end
 :param interaction: Interaction
 :param thermostat: Thermostat
 :param barostat: Barostat
-:param dUdV: function for dUdV and default is dUdV_default return 0.0
+:param dUdV: function for dUdV
 """
-function Hz(z::Vector{Float64},cell::UnitCell,interaction::Interaction,thermostat::Thermostat,barostat::Barostat;dUdV::T=dUdV_default,kb::Float64=1.0) where T
-    
+function Hz(z::Vector{Float64},cell::UnitCell,interaction::Interaction,thermostat::Thermostat,barostat::Barostat;dUdV::T=dUdV_default) where T
+    kb=1.0
     dim=3*length(cell.atoms)+2
     Hz=zeros(dim*2)
     natom=length(cell.atoms)
-    # if dim!=length(z)
-    #     throw("The dimension of z is not consist with the dimension of the system. z should be natom*3+2")
-    # end
+    if 2*dim!=length(z)
+        throw("The dimension of z is not consist with the dimension of the system. z should be natom*3+2")
+    end
     W=barostat.W
     Q=thermostat.Q
     temp=thermostat.T
@@ -141,25 +174,9 @@ function Hz(z::Vector{Float64},cell::UnitCell,interaction::Interaction,thermosta
     end
     Hz[dim]=3*z[dim]*z[2*dim]/W
     Hz[2*dim]=3*z[dim]*(Pint-Pe)+1/natom*addp-z[2*dim-1]*z[2*dim]/Q
-    # println()
-    # println(3*z[dim]*(Pint-Pe))
-    # println(1/natom*addp)
-    # println(-z[2*dim-1]*z[2*dim]/Q)
-    # println()
-
     Hz[dim-1]=z[2*dim-1]/Q
     Hz[2*dim-1]=addp+z[2*dim]^2/W-(3*natom+1)*kb*temp
     return Hz
-end
-
-"""
-生成2n x 2n 的辛矩阵
-"""
-function symplectic_matrix(n::Int)
-    I = Matrix{Float64}(I, n, n)  # 创建 n x n 的单位矩阵
-    O = zeros(Float64, n, n)      # 创建 n x n 的零矩阵
-    J = [O I; -I O]               # 使用块矩阵构建辛矩阵
-    return J
 end
 
 
@@ -171,19 +188,22 @@ RK3步进
 :param interaction: Interaction
 :param thermostat: Thermostat
 :param barostat: Barostat
-:param dUdV: function for dUdV and default is dUdV_default return 0.0
+:param dUdV: function for dUdV
 return z
 """
 function RK3_step!(z::Vector{Float64},dt::Float64,cell::UnitCell, interaction::Interaction, thermostat::Thermostat, barostat::Barostat;kb::Float64=1.0)
     k1=Hz(z,cell,interaction,thermostat,barostat)
     zr=z+(dt/2).*k1
     update_cell!(zr,cell)
+    zmod!(zr,cell)
     k2=Hz(zr,cell,interaction,thermostat,barostat)
     zr=z-dt.*k1+(2*dt).*k2
     update_cell!(zr,cell)
+    zmod!(zr,cell)
     k3=Hz(zr,cell,interaction,thermostat,barostat)
     z.=z+(dt/6).*(k1.+4*k2.+k3)
     update_cell!(z,cell)
+    zmod!(z,cell)
     dim=Int(length(z)/2)
     thermostat.Pt=z[2*dim-1]
     barostat.Pv=z[2*dim]
@@ -191,22 +211,23 @@ function RK3_step!(z::Vector{Float64},dt::Float64,cell::UnitCell, interaction::I
     barostat.V=z[dim]
     end
 
+"""
+根据cell,将z坐标转化回元胞内
+"""
 function zmod!(z::Vector{Float64},cell::UnitCell)
     natom=length(cell.atoms)
     a,b,c=cell.lattice_vectors*cell.copy
     for i in 1:natom
-        z[3*i-2]=mod(z[3*i-2],a)
-        z[3*i-1]=mod(z[3*i-1],b)
-        z[3*i]=mod(z[3*i],c)
-        z[3*natom+3*i]=mod(z[3*natom+3*i],a)
-        z[3*natom+3*i+1]=mod(z[3*natom+3*i+1],b)
-        z[3*natom+3*i+2]=mod(z[3*natom+3*i+2],c)
+        z[3*i-2]=mod(z[3*i-2]+a,2*a)-a
+        z[3*i-1]=mod(z[3*i-1]+b,2*b)-b
+        z[3*i]=mod(z[3*i]+c,2*c)-c
     end
 end
+
 """
-将z转化为atoms
+根据将z转化为atoms
 :param z: z=[r1...rn,Rt,Rv,p1,...pn,Pt,Pv]
-return atoms
+:return atoms
 """
 function z2atoms(z::Vector{Float64},cell::UnitCell)
     natom=Int((length(z)-4)/6)
@@ -225,6 +246,7 @@ end
 将z转化为UnitCell
 :param z: z=[r1...rn,Rt,Rv,p1,...pn,Pt,Pv]
 :param cell: UnitCell
+:return newcell
 """
 function z2cell(z::Vector{Float64},cell::UnitCell)
     atoms=z2atoms(z,cell)
@@ -234,7 +256,7 @@ end
 
 
 """
-将z转化为UnitCell,直接修改原始cell
+根据z修改cell,直接修改原始cell,z
 :param z: z=[r1...rn,Rt,Rv,p1,...pn,Pt,Pv]
 :param cell: UnitCell
 """
@@ -242,8 +264,6 @@ function update_cell!(z::Vector{Float64},cell::UnitCell)
     natom=Int((length(z)-4)/6)
     rl=z[1:3*natom]
     pl=z[3*natom+3:3*natom+3*natom+3]
-
-###这里是否需要修改体积还有待考虑，现在加了p会向-inf发散  
     v=z[3*natom+2]
     v0=cell.Volume
     if v<0
@@ -254,21 +274,23 @@ function update_cell!(z::Vector{Float64},cell::UnitCell)
     cell.lattice_vectors=ltm
     cell.Volume=v
     a,b,c=cell.copy
-    # z[1:3*natom].=z[1:3*natom]
-    # z[3*natom+3:3*natom+3*natom+3].=z[3*natom+3:3*natom+3*natom+3]
-#####################
     for i in 1:natom
         ri=inv(cell.lattice_vectors)*rl[3*i-2:3*i]
-        ri[1]=mod(ri[1],a)
-        ri[2]=mod(ri[2],b)
-        ri[3]=mod(ri[3],c)
+        ri[1]=mod(ri[1]-a,2*a)+a
+        ri[2]=mod(ri[2]-b,2*b)+b
+        ri[3]=mod(ri[3]-c,2*c)+c
         cell.atoms[i].position=ri
         cell.atoms[i].momentum=pl[3*i-2:3*i]
     end
 end
 
-
-
+"""
+根据rl,pl修改cell的i原子,直接修改cell
+"""
+function update_celli!(rl,pl,i::Int,cell::UnitCell)
+    cell.atoms[i].position=inv(cell.lattice_vectors)*rl
+    cell.atoms[i].momentum=pl
+end
 
 
 """
@@ -309,7 +331,7 @@ function initT!(T::Float64,cell::UnitCell)
 end
 
 
-function initcell(P::Float64,T::Float64,atoms::Vector{Atom},interaction::Interaction;cp::Vector{Int}=[3,3,3],Prg::Vector{Float64}=[0.05,3.0])
+function initcell(P::Float64,T::Float64,atoms::Vector{Atom},interaction::Interaction;cp::Vector{Int}=[1,1,1],Prg::Vector{Float64}=[0.05,3.0])
     m=atoms[1].mass
     kb=1.0
     natom=length(atoms)
@@ -363,5 +385,247 @@ function initcell(P::Float64,T::Float64,atoms::Vector{Atom},interaction::Interac
         end
     end
 end
+
+
+
+"""
+对于Nosehoover链的NHC演化算符,采用nresn*3的多部微分,将会直接修改cell.posi,momentum,thermostat.Pt,Rt,barostat.Pv see Andersen_Hoover_NPT_step! for more information
+:param cell: UnitCell
+:param interaction: Interaction
+:param thermostatchain: Vector{Thermostat}
+:param barostat: Barostat
+:param dt: Float64
+:param nresn: Float64
+"""
+function Nhcpisoint!(cell::UnitCell,interaction::Interaction,thermostatchain::Vector{Thermostat},barostat::Barostat,dt::Float64;nresn::Int=3)
+    kb=1.0
+    natom=length(cell.atoms)
+    Nf=3*natom ##自由度
+    T=thermostatchain[1].T
+    GN1KT=(Nf)*kb*T 
+    GKT=kb*T
+    odnf=1+3/Nf
+    W=barostat.W
+    V=cell.Volume
+    Pe=barostat.Pe
+    Pint=pressure_int(cell,interaction)
+    nnos=length(thermostatchain) 
+    glogs=zeros(nnos)
+    vlogs=[th.Pt for th in thermostatchain] ##恒温器动量
+    xlogs=[th.Rt for th in thermostatchain] ##恒温器位置
+    vlogv=barostat.Pv ##压力浴动量 v_epsilon epsilon=1/3 log(V)
+    glogv=0.0  #G_eps
+    
+    """
+    nys*3差分 nresn->nc,第一次多步
+    nyosh->nys 第二维多步
+    其中(nys,wj)表格见:Yoshida, H. (1990). Construction of higher order symplectic integrators. Physics Letters A, 150(5–7), 262–268. https://doi.org/10.1016/0375-9601(90)90092-3
+    """
+    nyosh=3
+    w1=1/(2-2^(1/3)) 
+    w3=w1
+    w2=1-2*w1
+    wdti=[w1,w2,w3]*dt
+    wdti2=wdti./2/nresn
+    wdti4=wdti./4/nresn
+    wdti8=wdti./8/nresn
+    scale::BigFloat=1.0
+    kint=0.0
+    for i in 1:natom 
+        kint=kint+dot(cell.atoms[i].momentum,cell.atoms[i].momentum)/cell.atoms[i].mass
+    end
+ 
+        glogs[1]=(kint+W*vlogv^2-GN1KT)/thermostatchain[1].Q
+        glogv=(odnf*kint+3.0*(Pint-Pe)*V)/W
+
+    for iresn in 1:nresn 
+        for iyosh in 1 :nyosh
+                   
+            vlogs[nnos]=vlogs[nnos]+glogs[nnos]*wdti4[iyosh]
+            
+            for inos in 1:nnos-1
+                AA=exp(-wdti8[iyosh]*vlogs[nnos+1-inos])
+                vlogs[nnos-inos]=vlogs[nnos-inos]*AA^2+wdti4[iyosh]*glogs[nnos-inos]*AA
+            end
+            AA=exp(-wdti8[iyosh]*vlogs[1])
+            vlogv=vlogv*AA^2+wdti4[iyosh]*glogv*AA
+
+            AA=exp(-wdti2[iyosh]*(vlogs[1]+odnf*vlogv))
+            scale=scale*AA
+            kint=kint*AA^2
+            glogv=(odnf*kint+3.0*(Pint-Pe)*V)/W
+            
+    
+            for inos in 1:nnos
+                xlogs[inos]=xlogs[inos]+vlogs[inos]*wdti2[iyosh]
+            end
+            AA=exp(-wdti8[iyosh]*vlogs[1])
+            vlogv=vlogv*AA^2+wdti4[iyosh]*glogv*AA
+            glogs[1]=(kint+W*vlogv^2-GN1KT)/thermostatchain[1].Q
+            
+            for inos in 1: nnos-1
+                AA=exp(-wdti8[iyosh]*vlogs[inos+1])
+                vlogs[inos]=vlogs[inos]*AA*AA+wdti4[iyosh]*glogs[inos]*AA
+                glogs[inos+1]=(thermostatchain[inos].Q*vlogs[inos]*vlogs[inos]-GKT)/thermostatchain[inos+1].Q
+            end
+            vlogs[nnos]=vlogs[nnos]+glogs[nnos]*wdti4[iyosh]
+        end
+
+    end
+    for i in 1:natom 
+        cell.atoms[i].momentum=cell.atoms[i].momentum*scale
+    end
+    barostat.Pv=vlogv
+    for inos in 1:nnos 
+        thermostatchain[inos].Rt=xlogs[inos]
+        thermostatchain[inos].Pt=vlogs[inos]
+    end 
+end
+
+
+"""
+Andersen-Hoover NPT的演化算符,L_NHCP的tort分解为L_NHC(dt/2) L1 L2 L1 L_NHC(dt/2),其中L_NHC部分由Nhcpisoint!完成,使用nresn*3的多部演化
+直接修改cell.posi,momentum,Volume,lattice_vectors,thermostat.Pt,Rt,barostat.Pv,V
+:param cell: UnitCell
+:param interaction: Interaction 
+:param thermostatchain: Vector{Thermostat},Nose Hoover链
+:param barostat: Barostat 恒压器
+:param dt: Float64
+:param nresn: Int=3
+
+Reference:
+Jalkanen, J., & Müser, M. H. (2015). Systematic analysis and modification of embedded-atom potentials: Case study of copper. Modelling and Simulation in Materials Science and Engineering, 23(7), 074001. https://doi.org/10.1088/0965-0393/23/7/074001
+"""
+function Andersen_Hoover_NPT_step!(cell::UnitCell,interaction::Interaction,thermostatchain::Vector{Thermostat},barostat::Barostat,dt::Float64;nresn::Int=3)
+    dt2=dt/2
+    I::BigFloat= 1.0    #使用级数计算sinh(dt)/dt 
+    E2 = I / 6.0
+    E4 = E2 / 20.0
+    E6 = E4 / 42.0
+    E8 = E6 / 72.0
+    natom=length(cell.atoms)
+    Nhcpisoint!(cell,interaction,thermostatchain,barostat,dt,nresn=nresn)
+    xlogv=1/3*log(barostat.V)
+    vlogv=barostat.Pv
+    initial_volume=cell.Volume
+    for i in 1:natom
+        fi=cell_forcei(cell,interaction,i)
+        cell.atoms[i].momentum.+=dt2*fi
+    end
+    AA=exp(dt2*vlogv)
+    AA2=AA*AA
+    arg2=(vlogv*dt2)^2
+    poly=(((E8*arg2+E6)*arg2+E4)*arg2+E2)+I
+    BB=AA*poly*dt
+    invltv=inv(cell.lattice_vectors)
+    for i in 1:natom
+        cell.atoms[i].position.=cell.atoms[i].position*AA2+(BB)*(invltv*cell.atoms[i].momentum/cell.atoms[i].mass)
+    end
+    
+    xlogv=xlogv+vlogv*dt
+    cell.Volume=exp(3*xlogv)
+    cell.lattice_vectors.=cell.lattice_vectors*(cell.Volume/initial_volume)^(1/3)
+    barostat.V=cell.Volume
+    barostat.Pv=vlogv
+    for i in 1:natom
+    fi=cell_forcei(cell,interaction,i)
+    cell.atoms[i].momentum.+=dt2*fi
+    end
+    Nhcpisoint!(cell,interaction,thermostatchain,barostat,dt,nresn=nresn)
+    cp=cell.copy
+    for i in 1:natom 
+        for j in 1:3
+            cell.atoms[i].position[j]=mod(cell.atoms[i].position[j]+cp[j],2*cp[j])-cp[j]
+        end
+    end
+end
+
+"""
+Langvin Anderson方式控制NPT
+:parm fcell: UnitCell
+:parm interaction: Interaction
+:parm dt: Float64
+:parm T: Float64
+:parm barostat: Barostat
+:parm gamma0: Float64
+:parm gammav: Float64
+:parm n: Int=4
+
+Ref:Bereau, T. (2015). Multi-timestep Integrator for the Modified Andersen Barostat. Physics Procedia, 68, 7–15. https://doi.org/10.1016/j.phpro.2015.07.101
+"""
+function LA_step!(fcell::UnitCell,interaction::Interaction,dt::Float64,T::Float64,barostat::Barostat,gamma0::Float64,gammav::Float64,n::Int=4)
+
+        kb=1.0
+        dist=Normal(0,1)        
+        Pe=barostat.Pe
+        ddt=dt/n
+        natom=length(fcell.atoms)
+        pl=fill(zeros(3),(2*n+1,natom))
+        rl=fill(zeros(3),(2*n+1,natom))
+        Pint=pressure_int(fcell,interaction)
+        Rv=barostat.Pv
+        Rvdt2=Rv+(Pint-Pe)*dt/2+sqrt(kb*T*gammav*dt)*rand(dist)-gammav*Rv*dt/2/barostat.W
+        V0=fcell.Volume
+        Vdt2=V0+Rvdt2*dt/2/barostat.W
+        Vdt=Vdt2+Rvdt2*dt/2/barostat.W
+        mi=fcell.atoms[1].mass
+        fcell.Volume=Vdt
+        barostat.V=Vdt
+        ltv=fcell.lattice_vectors
+        for i in 1:natom
+            pl[1,i]=fcell.atoms[i].momentum
+            rl[1,i]=ltv*fcell.atoms[i].position
+        end
+        fcell.lattice_vectors=fcell.lattice_vectors.*(Vdt/V0)^(1/3)
+        for j in 1:n-1
+            fl=fill(zeros(3),length(fcell.atoms))
+            for i in 1:length(fcell.atoms)
+                fi=cell_forcei(fcell,interaction,i)
+                fl[i]=fi
+            end
+            for i in 1:length(fcell.atoms)
+                # if j==1
+                #     pl[2*n+1,i]=pl[1,i].+(dt/2)*fl[i].+sqrt(kb*T*gamma0*dt)*rand(dist,3)-(gamma0*dt/2/mi)*pl[1,i]
+                # end
+                pl[2*j,i]=pl[2*j-1,i]+(ddt/2).*fl[i]+sqrt(kb*T*gamma0*ddt)*rand(dist,3)-(gamma0*ddt/2/mi)*pl[j,i]
+                rl[2*j+1,i]=rl[2*j-1,i]+(ddt/2).*pl[2*j,i]*ddt/mi
+                update_celli!(rl[2*j+1,i],pl[2*j,i],i,fcell)
+            end
+        
+            fl=fill(zeros(3),length(fcell.atoms))
+            for i in 1:length(fcell.atoms)
+                fi=cell_forcei(fcell,interaction,i)
+                fl[i]=fi
+            end
+        
+            for i in 1:length(fcell.atoms)
+                pl[2*j+1,i]=pl[2*j,i]+ddt/2*fl[i]+sqrt(kb*T*gamma0*ddt)*rand(dist,3)-(gamma0*ddt/2/mi)*pl[2*j,i]
+            end   
+        end
+        for i in 1:length(fcell.atoms)
+            mi=fcell.atoms[i].mass
+            rl[2*n+1,i]=rl[2*n-1,i]+((V0/Vdt2)^(2/3)/mi*ddt).*pl[2*n,i]
+            rl[2*n+1,i]=rl[2*n+1,i].*((Vdt/V0)^(1/3))
+            pl[n+1,i]=pl[n+1,i].*((V0/Vdt)^(1/3))
+        end
+        
+        invlt=inv(fcell.lattice_vectors)
+        for i in 1:length(fcell.atoms)
+            fcell.atoms[i].position=invlt*rl[2*n+1,i]
+        end
+        
+        for i in 1:length(fcell.atoms)
+            fi=cell_forcei(fcell,interaction,i)
+            pl[2*n+1,i]=pl[n+1,i]+(dt/2).*fi-(gamma0*dt/2/mi)*pl[n+1,i]+sqrt(kb*T*gammav*dt)*rand(dist,3)
+        end
+        
+        for i in 1:length(fcell.atoms)
+            fcell.atoms[i].momentum=pl[2*n+1,i]
+        end
+        Pint=pressure_int(fcell,interaction)
+        Rvdt=Rvdt2+(Pint-Pe).*(dt/2)+sqrt(kb*T*gammav*dt)*rand(dist)-gammav*Rvdt2*dt/2/barostat.W
+        barostat.Pv=Rvdt
+end
+
 end
 
