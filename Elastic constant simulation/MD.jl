@@ -24,6 +24,8 @@ using JLD2
 export pressure_int,Thermostat,Barostat,Hz,RK3_step!,z2atoms,z2cell,cell2z,dUdV_default,update_cell!,initT!,initcell,dUdV_default,Nhcpisoint!,Andersen_Hoover_NPT_step!,LA_step!
 
 
+
+
 """
 default function for dUdV_default
 向前向后微分数值计算dU/dV;步长默认取10e-9Volume,这一项在NPT恒压中是重要的,忽略会导致恒压不稳定
@@ -42,7 +44,7 @@ function dUdV_default(inicell::UnitCell,interaction::Interaction,dV::BigFloat=Bi
     cp=inicell.copy
 
     dcell=deepcopy(inicell)
-    dcell.lattice_vectors=ltv1
+    dcell.lattice_vectors.=ltv1
     for i in 1:natom
         for j in 1:3
             ri=(inv(ltv1))*ltv*dcell.atoms[i].position
@@ -50,12 +52,12 @@ function dUdV_default(inicell::UnitCell,interaction::Interaction,dV::BigFloat=Bi
         end
         # dcell.atoms[i].position=(ltv1)*ltv*dcell.atoms[i].position
     end
-    energy1=cell_energy0(dcell,interaction)
+    energy1=cell_energy(dcell,interaction)
     # fig=visualize_unitcell_atoms0(dcell)
     # display(fig)
 
     dcell=deepcopy(inicell)
-    dcell.lattice_vectors=ltv2
+    dcell.lattice_vectors.=ltv2
     for i in 1:natom
         for j in 1:3
             ri=(inv(ltv2))*ltv*dcell.atoms[i].position
@@ -63,7 +65,7 @@ function dUdV_default(inicell::UnitCell,interaction::Interaction,dV::BigFloat=Bi
         end
         # dcell.atoms[i].position=(ltv2)*ltv*dcell.atoms[i].position
     end
-    energy2=cell_energy0(dcell,interaction)
+    energy2=cell_energy(dcell,interaction)
     # println("E1=$energy1,E2=$energy2")
 
     # kk=0.0
@@ -180,6 +182,77 @@ function Hz(z::Vector{Float64},cell::UnitCell,interaction::Interaction,thermosta
 end
 
 
+
+
+
+"""
+计算dH/dz in NVT
+:param z: z=[r1...rn,Rt,Rv,p1,...pn,Pt,Pv]
+:param cell: UnitCell
+:param interaction: Interaction
+:param thermostat: Thermostat
+"""
+function Hz(z::Vector{Float64},cell::UnitCell,interaction::Interaction,thermostat::Thermostat)
+    kb=1.0
+    dim=3*length(cell.atoms)+1
+    Hz=zeros(dim*2)
+    natom=length(cell.atoms)
+    if 2*dim!=length(z)
+        throw("The dimension of z is not consist with the dimension of the system. z should be natom*3+2")
+    end
+    Q=thermostat.Q
+    temp=thermostat.T
+    addp=sum([dot(atom.momentum,atom.momentum)/atom.mass for atom in cell.atoms])
+    # @threads 
+    for i in 1:natom
+        atom=cell.atoms[i]
+        mi=atom.mass
+        Hz[3*i-2]=z[3*i-2+dim]/mi
+        Hz[3*i-1]=z[3*i-1+dim]/mi
+        Hz[3*i]=z[3*i+dim]/mi
+        fi=cell_forcei(cell,interaction,i)
+        Hz[dim+3*i-2]=fi[1]-z[2*dim]*z[dim+3*i-2]/Q
+        Hz[dim+3*i-1]=fi[2]-z[2*dim]*z[dim+3*i-1]/Q
+        Hz[dim+3*i]=fi[3]-z[2*dim]*z[dim+3*i]/Q
+    end
+    Hz[dim]=z[2*dim]/Q
+    Hz[2*dim]=addp-3*natom*kb*temp
+    # println("addp:",addp)
+    # println(3*natom*kb*temp)
+    return Hz
+end
+
+
+"""
+RK3步进,NVT
+:param z: z=[r1...rn,Rt,Rv,p1,...pn,Pt,Pv]
+:param dt: 步长
+:param cell: UnitCell
+:param interaction: Interaction
+:param thermostat: Thermostat
+return z
+"""
+function RK3_step!(z::Vector{Float64},dt::Float64,cell::UnitCell, interaction::Interaction,thermostat::Thermostat)
+    dim=Int(length(z)/2)
+    k1=Hz(z,cell,interaction,thermostat)
+    zr=z+(dt/2).*k1
+    update_cell_NVT!(zr,cell)
+    updatezr!(zr,cell)
+    k2=Hz(zr,cell,interaction,thermostat)
+    zr.=z-dt.*k1+(2*dt).*k2
+    update_cell_NVT!(zr,cell)
+    updatezr!(zr,cell)
+    k3=Hz(zr,cell,interaction,thermostat)
+    z.=z+(dt/6).*(k1.+4*k2.+k3)
+    update_cell_NVT!(z,cell)
+    updatezr!(z,cell)
+    thermostat.Pt=z[2*dim]
+    thermostat.Rt=z[dim]
+end
+
+
+
+
 """
 RK3步进
 :param z: z=[r1...rn,Rt,Rv,p1,...pn,Pt,Pv]
@@ -191,13 +264,13 @@ RK3步进
 :param dUdV: function for dUdV
 return z
 """
-function RK3_step!(z::Vector{Float64},dt::Float64,cell::UnitCell, interaction::Interaction, thermostat::Thermostat, barostat::Barostat;kb::Float64=1.0)
+function RK3_step!(z::Vector{Float64},dt::Float64,cell::UnitCell, interaction::Interaction, thermostat::Thermostat, barostat::Barostat)
     k1=Hz(z,cell,interaction,thermostat,barostat)
     zr=z+(dt/2).*k1
     update_cell!(zr,cell)
     updatezr!(zr,cell)
     k2=Hz(zr,cell,interaction,thermostat,barostat)
-    zr=z-dt.*k1+(2*dt).*k2
+    zr.=z-dt.*k1+(2*dt).*k2
     update_cell!(zr,cell)
     updatezr!(zr,cell)
     k3=Hz(zr,cell,interaction,thermostat,barostat)
@@ -251,7 +324,7 @@ end
 function update_cell!(z::Vector{Float64},cell::UnitCell)
     natom=Int((length(z)-4)/6)
     rl=z[1:3*natom]
-    pl=z[3*natom+3:3*natom+3*natom+3]
+    pl=z[3*natom+3:3*natom+3*natom+2]
     v=z[3*natom+2]
     v0=cell.Volume
     if v<0
@@ -271,6 +344,32 @@ function update_cell!(z::Vector{Float64},cell::UnitCell)
         cell.atoms[i].momentum=pl[3*i-2:3*i]
     end
 end
+
+
+
+
+"""
+根据z修改cell,直接修改原始cell,z
+:param z: z=[r1...rn,Rt,Rv,p1,...pn,Pt,Pv]
+:param cell: UnitCell
+"""
+function update_cell_NVT!(z::Vector{Float64},cell::UnitCell)
+    natom=Int((length(z)-2)/6)
+    rl=z[1:3*natom]
+    pl=z[3*natom+2:6*natom+1]
+    a,b,c=cell.copy
+    for i in 1:natom
+        ri=inv(cell.lattice_vectors)*rl[3*i-2:3*i]
+        ri[1]=mod(ri[1]+a,2*a)-a
+        ri[2]=mod(ri[2]+b,2*b)-b
+        ri[3]=mod(ri[3]+c,2*c)-c
+        cell.atoms[i].position=ri
+        cell.atoms[i].momentum=pl[3*i-2:3*i]
+    end
+end
+
+
+
 
 """
 根据rl,pl修改cell的i原子,直接修改cell
@@ -292,6 +391,19 @@ function cell2z(cell::UnitCell,thermostat::Thermostat,barostat::Barostat)
     rl=[cell.lattice_vectors*atom.position for atom in cell.atoms];
     pl=[atom.momentum for atom in cell.atoms];
     z=vcat(vcat(rl...),thermostat.Rt,barostat.V,vcat(pl...),thermostat.Pt,barostat.Pv);
+    return z
+end
+
+"""
+将UnitCell转化为z for NVT
+:param cell: UnitCell
+:param thermostat: Thermostat
+return z
+"""
+function cell2z(cell::UnitCell,thermostat::Thermostat)
+    rl=[cell.lattice_vectors*atom.position for atom in cell.atoms];
+    pl=[atom.momentum for atom in cell.atoms];
+    z=vcat(vcat(rl...),thermostat.Rt,vcat(pl...),thermostat.Pt);
     return z
 end
 

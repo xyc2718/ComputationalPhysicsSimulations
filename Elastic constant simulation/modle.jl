@@ -282,7 +282,7 @@ end
 :param maxiter: 最大迭代次数，默认为 -1,将自动计算
 :param tol: 误差，默认为 1e-3 用于判断div 0错误
 """
-function cell_energyij(cell::UnitCell, interaction::Interaction, i::Int, j::Int; ifnormalize::Bool=true, maxiter::Int=-1, tol::Float64=1e-3)
+function cell_energyij0(cell::UnitCell, interaction::Interaction, i::Int, j::Int; ifnormalize::Bool=true, maxiter::Int=-1, tol::Float64=1e-3)
     cutoff = interaction.cutoff
     atomi = cell.atoms[i]
     atomj = cell.atoms[j]
@@ -350,7 +350,7 @@ end
 :param maxiter: 最大迭代次数，默认为 -1,将自动计算
 :param tol: 误差，默认为 1e-3 用于判断div 0错误
 """
-function cell_energy(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=true,maxiter::Int=-1,tol::Float64=1e-3)
+function cell_energy0(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=true,maxiter::Int=-1,tol::Float64=1e-3)
     a,b,c=cell.copy
     # if interaction.cutoff>minimum((cell.lattice_vectors*Vector([a,b,c])))
     #     lv=cell.lattice_vectors*Vector([a,b,c])
@@ -361,7 +361,7 @@ function cell_energy(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=t
     for i in 1:length(cell.atoms)
         for j in 1:length(cell.atoms)
             if i!=j
-                energy+=cell_energyij(cell,interaction,i,j,ifnormalize=ifnormalize,maxiter=maxiter,tol=tol)
+                energy+=cell_energyij0(cell,interaction,i,j,ifnormalize=ifnormalize,maxiter=maxiter,tol=tol)
                 # println("energy at $i $j is $energy")
             end
         end
@@ -390,7 +390,7 @@ end
 :param i,j: 原子序号、
 :param ifnormize: 是否归一化，默认为 true,将用配位数对能量进行归一化
 """
-function cell_energyij0(cell::UnitCell, interaction::Interaction, i::Int, j::Int; ifnormalize::Bool=false,iffilter::Bool=false)
+function cell_energyij(cell::UnitCell, interaction::Interaction, i::Int, j::Int; ifnormalize::Bool=false,iffilter::Bool=false)
     cutoff = interaction.cutoff
     atomi = cell.atoms[i]
     atomj = cell.atoms[j]
@@ -437,7 +437,7 @@ end
 :param maxiter: 最大迭代次数，默认为 -1,将自动计算
 :param tol: 误差，默认为 1e-3 用于判断div 0错误
 """
-function cell_energy0(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=false,iffilter::Bool=false)
+function cell_energy(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=false,iffilter::Bool=false)
     # a,b,c=cell.copy
     # if interaction.cutoff>(maximum(cell.lattice_vectors)*minimum(Vector([a,b,c])))
     #     println(a,b,c)
@@ -449,7 +449,7 @@ function cell_energy0(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=
     for i in 1:length(cell.atoms)
         for j in 1:length(cell.atoms)
             if i!=j
-                energy+=cell_energyij0(cell,interaction,i,j,ifnormalize=ifnormalize,iffilter=iffilter)
+                energy+=cell_energyij(cell,interaction,i,j,ifnormalize=ifnormalize,iffilter=iffilter)
                 # println("energy at $i $j is $energy")
             end
         end
@@ -510,11 +510,29 @@ function cell_forcei(cell::UnitCell,interaction::Interaction,i::Int;iffilter::Bo
     forcei=zeros(3)
         for j in 1:length(cell.atoms)
             if i!=j
-                forcei+=cell_forceij(cell,interaction,i,j,iffilter=iffilter)
+                forcei.+=cell_forceij(cell,interaction,i,j,iffilter=iffilter)
             end
         end
     return forcei
 end
+
+
+
+
+# function cell_forcei(cell::UnitCell,interaction::Interaction,i::Int;fractor::Fractor,iffilter::Bool=false)
+#     forcei=zeros(3)
+#     for j in 1:length(cell.atoms)
+#         if i!=j
+#             forcei+=cell_forceij(cell,interaction,i,j,iffilter=iffilter)+fractor.fracforce(cell,i)
+#         end
+#     end
+# return forcei
+
+
+# end
+
+
+
 
 
 """
@@ -627,4 +645,6 @@ function force_tensor!(cell::UnitCell,interaction::Interaction)
     end
     return tensor./v
 end
+
+
 end
