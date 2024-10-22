@@ -11,7 +11,8 @@ using LinearAlgebra
 # using Makie
 using GLMakie 
 using Base.Threads
-export Atom, UnitCell, copycell, visualize_unitcell_atoms, Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,kb,visualize_unitcell_atoms0,filtercell,cell_forceij!,cell_forcei!,force_tensor!,cell_temp
+using IterTools
+export Atom, UnitCell, copycell, visualize_unitcell_atoms, Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,kb,visualize_unitcell_atoms0,filtercell,cell_forceij!,cell_forcei!,force_tensor!,cell_temp,Ngradiant0,getrij,is_diagonal_matrix,Embedding,dUdhij
     
 global const kb=1.0
 
@@ -207,6 +208,97 @@ function visualize_unitcell_atoms0(cell::UnitCell;markersize=10,iftext::Bool=fal
 end
 
 
+"""
+通过最小近邻像获取ij间真实距离
+若晶格向量不正交则会遍历周围26个晶胞
+cell::UnitCell
+i::Int
+j::Int
+
+return rij
+"""
+function getrij(cell::UnitCell,i::Int,j::Int)
+    cp=cell.copy
+    ltv=cell.lattice_vectors
+    rij=cell.atoms[j].position-cell.atoms[i].position
+    if  is_diagonal_matrix(ltv)
+        for k in 1:3
+            rijk=rij[k]
+            cpk=cp[k]
+            if rijk>cpk
+                    rij[k]=rijk-cpk*2.0
+            elseif rijk<-cpk
+                    rij[k]=rijk+cpk*2.0
+            end
+        end
+        rij=ltv*rij
+    else
+        values=[1.0,0.0,-1.0]
+        cp =cp.*2.0
+        combinations = product(values .* cp[1], values .* cp[2], values .* cp[3])
+        min_norm = norm(ltv*rij)
+        min_rij=deepcopy(rij)
+        # 计算每个组合加上 rij 的模长
+        for combo in combinations
+            if combo!=[0.0,0.0,0.0]
+                new_rij = rij .+ combo
+                norm_value = norm(ltv*new_rij)
+                if norm_value < min_norm
+                    min_norm = norm_value
+                    min_rij.= new_rij
+                end
+            # println("rij=$rij,min_norm=$min_norm")
+            end
+        end
+        return ltv*min_rij
+    end
+    # println("rij=$min_rij,min_norm=$(norm(ltv*min_rij))") 
+end
+
+"""
+判断是否为对角阵
+"""
+function is_diagonal_matrix(A::Matrix{Float64})
+    rows, cols = size(A)
+    if rows != cols
+        return false
+    end
+    for i in 1:rows
+        for j in 1:cols
+            if i != j && A[i, j] != 0
+                return false
+            end
+        end
+    end
+    
+    return true
+end
+
+
+
+function Default_Embedding_energy(cell::UnitCell)
+    return 0.0
+    end
+function Default_Embedding_force(cell::UnitCell,i::Int)
+    return zeros(3)
+end
+"""
+嵌入能项
+"""
+struct Embedding{E1, E2}
+    embedding_energy::E1
+    embedding_force::E2
+    ifembedding::Bool
+    function Embedding() 
+        new{typeof(Default_Embedding_energy),typeof(Default_Embedding_force)}(Default_Embedding_energy,Default_Embedding_force, false)
+    end
+    function Embedding(embedding_energy::E1, embedding_force::E2) where {E1, E2}
+        new{E1,E2}(embedding_energy, embedding_force, true)
+    end
+end
+
+
+
 
 """
 相互作用类型,通过二次函数添加截断于cutoff-cutrg - cutoff
@@ -224,19 +316,19 @@ struct Interaction{F1, F2, F3, F4}
     cutforce::F4   # 截断力函数
     cutoff::Float64  # 截断距离
     cutrg::Float64   # 截断范围
+    embedding::Embedding
 
 
     # 定义构造函数
     function Interaction(energy::F1, force::F2, cutoff::Float64, cutrg::Float64) where {F1, F2}
         
-
         # 初始化截断势能和力的参数
         Er2 = energy(cutoff - cutrg)
         dU2 = -(force(Vector([cutoff - cutrg,0,0])))[1]
         bb=Vector{Float64}([0.0,0.0,dU2,Er2])
         x1=cutoff
         x2=cutoff-cutrg
-        A=[x1^3 x1^2 x1 1;3*x1^2 2*x1 1 0;3*x2^3 2*x2 1 0;x2^3 x2^2 x2 1]
+        A=[x1^3 x1^2 x1 1;3*x1^2 2*x1 1 0;3*x2^2 2*x2 1 0;x2^3 x2^2 x2 1]
         a,b,c,d=inv(A)*bb
 
         # 定义截断势能函数
@@ -267,9 +359,269 @@ struct Interaction{F1, F2, F3, F4}
         cutforce(r::Float64) = (cutforce(Vector([r, 0, 0])))[1]
 
         # 返回新的 Interaction 实例
-        new{F1, F2, typeof(cutenergy), typeof(cutforce)}(energy, force, cutenergy, cutforce, cutoff, cutrg)
+        new{F1, F2, typeof(cutenergy), typeof(cutforce)}(energy, force, cutenergy, cutforce, cutoff, cutrg,Embedding())
+    end
+
+
+     # 定义构造函数
+     function Interaction(energy::F1, force::F2, cutoff::Float64, cutrg::Float64,embedding::Embedding) where {F1, F2}
+        
+
+        # 初始化截断势能和力的参数
+        Er2 = energy(cutoff - cutrg)
+        dU2 = -(force(Vector([cutoff - cutrg,0,0])))[1]
+        bb=Vector{Float64}([0.0,0.0,dU2,Er2])
+        x1=cutoff
+        x2=cutoff-cutrg
+        A=[x1^3 x1^2 x1 1;3*x1^2 2*x1 1 0;3*x2^2 2*x2 1 0;x2^3 x2^2 x2 1]
+        a,b,c,d=inv(A)*bb
+
+
+        # 定义截断势能函数
+        function cutenergy(r::Float64)
+            nr = abs(r)
+            if nr > cutoff
+                return 0.0
+            elseif nr < cutoff - cutrg
+                return energy(r)
+            else
+                return a*nr^3+b*nr^2+c*nr+d
+            end
+        end
+
+        # 定义截断力函数，接收向量输入
+        function cutforce(r::Vector{Float64})
+            nr = norm(r)
+            if nr > cutoff
+                return Vector(zeros(3))
+            elseif nr < cutoff - cutrg
+                return force(r)
+            else
+                return -((3 * a * nr^2 +2*b*nr+c) / nr) * r
+            end
+        end
+
+        # 定义截断力函数的重载，使其可以接收 Float64 类型的输入
+        cutforce(r::Float64) = (cutforce(Vector([r, 0, 0])))[1]
+
+        # 返回新的 Interaction 实例
+        new{F1, F2, typeof(cutenergy), typeof(cutforce)}(energy, force, cutenergy, cutforce, cutoff, cutrg,embedding)
     end
 end
+
+
+"""
+计算cell温度,减去了质心动能
+:param cell: 晶胞
+"""
+function cell_temp(cell::UnitCell)
+    kb=1.0
+    Ek=0.0
+    for atom in cell.atoms
+        p=atom.momentum
+        Ek+=sum(p.^2)/(atom.mass)/2
+    end
+    return 2*Ek/(3*kb*(length(cell.atoms)-1))    
+end
+
+"""
+采用邻近最小像计算cell能量,assert:cutoff<box/2,若晶胞原子有重复
+:param cell: 晶胞
+:param interaction: 相互作用
+:param i,j: 原子序号、
+:param ifnormize: 是否归一化，默认为 true,将用配位数对能量进行归一化
+"""
+function cell_energyij(cell::UnitCell, interaction::Interaction, i::Int, j::Int; ifnormalize::Bool=false)
+    cutoff = interaction.cutoff
+    cni = cell.atoms[i].cn
+    energy=0.0
+    rij=getrij(cell,i,j)
+    nr=norm(rij)
+    if nr>cutoff
+        energy=0.0
+    else
+        energy=interaction.cutenergy(nr)
+        if ifnormalize
+            energy /= cni
+        end
+    end
+    return energy
+end
+
+
+
+"""
+计算晶胞的总能量,采用邻近最小像,assert:cutoff<box/2
+:param cell: 晶胞
+:param interaction: 相互作用
+:param ifnormize: 是否归一化，默认为 true,将用配位数对能量进行归一化
+:param maxiter: 最大迭代次数，默认为 -1,将自动计算
+:param tol: 误差，默认为 1e-3 用于判断div 0错误
+"""
+function cell_energy(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=false)
+    # a,b,c=cell.copy
+    # if interaction.cutoff>(maximum(cell.lattice_vectors)*minimum(Vector([a,b,c])))
+    #     println(a,b,c)
+    #     lv=cell.lattice_vectors*Vector([a,b,c])
+    #     cutoff=interaction.cutoff
+    #     println("Warning: Cutoff $cutoff is larger than the minimum distance of the lattice vectors $lv ,energy i and Ri will be lost under rules of nearest neighbor image")
+    # end
+    energy=0.0
+    energyeb=0.0
+    for i in 1:length(cell.atoms)
+        for j in 1:length(cell.atoms)
+            if i!=j
+                energy+=cell_energyij(cell,interaction,i,j,ifnormalize=ifnormalize)
+                # println("energy at $i $j is $energy")
+            end
+        end
+    end
+    if interaction.embedding.ifembedding
+        energyeb+=interaction.embedding.embedding_energy(cell)
+    end
+    return energy+energyeb
+end
+
+
+
+"""
+计算晶胞中i,j原子之间的相互作用力,采用邻近最小像,assert:cutoff<box/2
+:param cell: 晶胞
+:param interaction: 相互作用
+:param i,j: 原子序号
+这里rij其实应该是rji,一开始搞错了,故最后加负号
+"""
+function cell_forceij(cell::UnitCell, interaction::Interaction, i::Int, j::Int;iffilter::Bool=false)
+    cutoff = interaction.cutoff
+    rij=getrij(cell,i,j)
+    nr=norm(rij)
+    if nr>cutoff
+        force=zeros(3)
+    else
+        force=interaction.cutforce(rij)
+    end 
+    if any(isnan,force)
+        throw("Warning the same atoms of atom i=$i j=$j lead to the nan force")
+    end
+    return -force
+end
+
+"""
+计算晶胞中i原子的受力
+:param cell: 晶胞
+:param interaction: 相互作用
+:param i: 原子序号
+"""
+function cell_forcei(cell::UnitCell,interaction::Interaction,i::Int;iffilter::Bool=false)
+    forcei=zeros(3)
+        for j in 1:length(cell.atoms)
+            if i!=j
+                forcei.+=cell_forceij(cell,interaction,i,j,iffilter=iffilter)
+            end
+        end
+    if interaction.embedding.ifembedding
+        # forcei.-=Ngradiant0(cell,i,interaction.embedding.embedding_energy,[])
+        forcei.-=interaction.embedding.embedding_force(cell,i)
+    end
+    return forcei
+end
+
+function  Ngradiant0(cell::UnitCell,i::Int,f::Function,para::Vector;dr::Vector{Float64}=[0.001,0.001,0.001])
+    df=zeros(3)
+    lt=cell.lattice_vectors
+    invlt=inv(lt)
+    drm=Diagonal(dr)
+    for j in 1:3
+        dri=invlt*drm[j,:]
+        dcell=deepcopy(cell)
+        dcell.atoms[i].position.+=dri
+        f1=f(dcell,para...)
+        dcell.atoms[i].position.-=2*dri
+        f2=f(dcell,para...)
+        df[j]=(f1-f2)/2/dr[j]
+    end
+    return df
+end
+
+
+# function cell_forcei(cell::UnitCell,interaction::Interaction,i::Int;fractor::Fractor,iffilter::Bool=false)
+#     forcei=zeros(3)
+#     for j in 1:length(cell.atoms)
+#         if i!=j
+#             forcei+=cell_forceij(cell,interaction,i,j,iffilter=iffilter)+fractor.fracforce(cell,i)
+#         end
+#     end
+# return forcei
+# end
+
+
+
+"""
+计算晶胞的应力张量,不含dU/dhij项，请使用dUdhij函数额外计算
+:param cell: 晶胞
+:param interaction: 相互作用
+"""
+function force_tensor(cell::UnitCell,interaction::Interaction)
+    tensor=zeros(3,3)
+    v=cell.Volume
+    for i in 1:length(cell.atoms)
+        for a in 1:3
+            for b in 1:3
+                forcei=cell_forcei(cell,interaction,i)
+                atom=cell.atoms[i]
+                tensor[a,b]+=forcei[a]*atom.position[b]/2+atom.momentum[a]*atom.momentum[b]/atom.mass
+            end
+        end
+    end
+    return tensor./v
+end
+
+
+"""
+差分计算dU/dhij
+"""
+function dUdhij(fcell::UnitCell,interaction::Interaction,dr::BigFloat=BigFloat("1e-5"))
+    ltv=fcell.lattice_vectors
+    dltv=dr*maximum(ltv)
+    # println(dltv)
+    re=zeros(3,3)
+    cp=fcell.copy
+    for i in 1:3
+        for j in 1:3
+            dcell=deepcopy(fcell)
+            ltv2=deepcopy(ltv)
+            ltv2[i,j]+=dltv
+            for atom in dcell.atoms
+                ri=(inv(ltv2))*ltv*atom.position
+                    for k in 1:3
+                        atom.position[k]=mod(ri[k]+cp[k],2*cp[k])-cp[k]
+                    end
+            end
+            energy1=cell_energy(dcell,interaction)
+            dcell=deepcopy(fcell)
+            ltv2=deepcopy(ltv)
+            ltv2[i,j]-=dltv
+            # println(ltv2)
+            for atom in dcell.atoms
+                ri=(inv(ltv2))*ltv*atom.position
+                    for k in 1:3
+                        atom.position[k]=mod(ri[k]+cp[k],2*cp[k])-cp[k]
+                    end
+            end
+            
+            energy2=cell_energy(dcell,interaction)
+            # println("i=$i,j=$j,dE=$(energy1-energy2)")
+            re[i,j]=(energy1-energy2)/dltv/2
+        end
+    end
+
+    return re
+end
+
+
+
+####################################################################################
+#以下为几乎弃用代码
 
 
 """
@@ -367,192 +719,6 @@ function cell_energy0(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=
         end
     end
     return energy/2
-end
-
-"""
-计算cell温度,减去了质心动能
-:param cell: 晶胞
-"""
-function cell_temp(cell::UnitCell)
-    kb=1.0
-    Ek=0.0
-    for atom in cell.atoms
-        p=atom.momentum
-        Ek+=sum(p.^2)/(atom.mass)/2
-    end
-    return 2*Ek/(3*kb*(length(cell.atoms)-1))    
-end
-
-"""
-采用邻近最小像计算cell能量,assert:cutoff<box/2,若晶胞原子有重复,iffilter=true将根据bound属性去重
-:param cell: 晶胞
-:param interaction: 相互作用
-:param i,j: 原子序号、
-:param ifnormize: 是否归一化，默认为 true,将用配位数对能量进行归一化
-"""
-function cell_energyij(cell::UnitCell, interaction::Interaction, i::Int, j::Int; ifnormalize::Bool=false,iffilter::Bool=false)
-    cutoff = interaction.cutoff
-    atomi = cell.atoms[i]
-    atomj = cell.atoms[j]
-    bd=abs.(atomj.bound)
-    cp = cell.copy
-    cni = atomi.cn
-    rij=atomj.position-atomi.position
-    energy=0.0
-    for k in 1:3
-        rijk=rij[k]
-        cpk=cp[k]
-        if iffilter
-            if bd[k]==1
-                continue
-            end
-        end
-        if rijk>cpk
-                rij[k]=rijk-cpk*2.0
-        elseif rijk<-cpk
-                rij[k]=rijk+cpk*2.0
-        end
-    end
-    # println("ij0 cal $rij")
-    rij=cell.lattice_vectors*rij
-    nr=norm(rij)
-    if nr>cutoff
-        energy=0.0
-    else
-        energy=interaction.cutenergy(nr)
-        if ifnormalize
-            energy /= cni
-        end
-    end
-    return energy
-end
-
-
-
-"""
-计算晶胞的总能量,采用邻近最小像,assert:cutoff<box/2
-:param cell: 晶胞
-:param interaction: 相互作用
-:param ifnormize: 是否归一化，默认为 true,将用配位数对能量进行归一化
-:param maxiter: 最大迭代次数，默认为 -1,将自动计算
-:param tol: 误差，默认为 1e-3 用于判断div 0错误
-"""
-function cell_energy(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=false,iffilter::Bool=false)
-    # a,b,c=cell.copy
-    # if interaction.cutoff>(maximum(cell.lattice_vectors)*minimum(Vector([a,b,c])))
-    #     println(a,b,c)
-    #     lv=cell.lattice_vectors*Vector([a,b,c])
-    #     cutoff=interaction.cutoff
-    #     println("Warning: Cutoff $cutoff is larger than the minimum distance of the lattice vectors $lv ,energy i and Ri will be lost under rules of nearest neighbor image")
-    # end
-    energy=0.0
-    for i in 1:length(cell.atoms)
-        for j in 1:length(cell.atoms)
-            if i!=j
-                energy+=cell_energyij(cell,interaction,i,j,ifnormalize=ifnormalize,iffilter=iffilter)
-                # println("energy at $i $j is $energy")
-            end
-        end
-    end
-    return energy/2
-end
-
-"""
-计算晶胞中i,j原子之间的相互作用力,采用邻近最小像,assert:cutoff<box/2,若晶胞原子有重复,iffilter=true将根据bound属性去重
-:param cell: 晶胞
-:param interaction: 相互作用
-:param i,j: 原子序号
-这里rij其实应该是rji,一开始搞错了,故最后加负号
-"""
-function cell_forceij(cell::UnitCell, interaction::Interaction, i::Int, j::Int;iffilter::Bool=false)
-    cutoff = interaction.cutoff
-    atomi = cell.atoms[i]
-    atomj = cell.atoms[j]
-    bd=abs.(atomj.bound)
-    cp = cell.copy
-    cni = atomi.cn
-    rij=atomj.position-atomi.position
-    for k in 1:3
-        rijk=rij[k]
-        cpk=cp[k]
-        if iffilter
-            if bd[k]==1
-                continue
-            end
-        end
-        if rijk>cpk
-                rij[k]=rijk-cpk*2
-        elseif rijk<-cpk
-                rij[k]=rijk+cpk*2
-        end
-    end
-    rij=cell.lattice_vectors*rij
-    nr=norm(rij)
-    if nr>cutoff
-        force=zeros(3)
-    else
-        force=interaction.cutforce(rij)
-    end
-
-    if any(isnan,force)
-        throw("Warning the same atoms of atom i=$i j=$j lead to the nan force")
-    end
-    return -force
-end
-
-"""
-计算晶胞中i原子的受力
-:param cell: 晶胞
-:param interaction: 相互作用
-:param i: 原子序号
-"""
-function cell_forcei(cell::UnitCell,interaction::Interaction,i::Int;iffilter::Bool=false)
-    forcei=zeros(3)
-        for j in 1:length(cell.atoms)
-            if i!=j
-                forcei.+=cell_forceij(cell,interaction,i,j,iffilter=iffilter)
-            end
-        end
-    return forcei
-end
-
-
-
-
-# function cell_forcei(cell::UnitCell,interaction::Interaction,i::Int;fractor::Fractor,iffilter::Bool=false)
-#     forcei=zeros(3)
-#     for j in 1:length(cell.atoms)
-#         if i!=j
-#             forcei+=cell_forceij(cell,interaction,i,j,iffilter=iffilter)+fractor.fracforce(cell,i)
-#         end
-#     end
-# return forcei
-
-
-# end
-
-
-
-
-
-"""
-计算晶胞的应力张量,待加入dU/dh_i的项
-:param cell: 晶胞
-:param interaction: 相互作用
-"""
-function force_tensor(cell::UnitCell,interaction::Interaction)
-    tensor=zeros(3,3)
-    v=cell.Volume
-    for i in 1:length(cell.atoms)
-        for a in 1:3
-            for b in 1:3
-                forcei=cell_forcei(cell,interaction,i)
-                atom=cell.atoms[i]
-                tensor[a,b]+=forcei[a]*atom.position[b]/2+atom.momentum[a]*atom.momentum[b]/atom.mass
-            end
-        end
-    end
-    return tensor./v
 end
 
 

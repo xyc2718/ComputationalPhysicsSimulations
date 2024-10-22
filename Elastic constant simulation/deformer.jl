@@ -27,13 +27,8 @@ function deform_mat(flag::Int, delta::Float64)
     end
 end
     
-function deform_cell(fcell::UnitCell,deform_mat::Float64)4
-    fcell.a1 = fcell.a1 * deform_mat
-    fcell.a2 = fcell.a2 * deform_mat
-    fcell.a3 = fcell.a3 * deform_mat
-    return fcell
+function deform_cell!(fcell::UnitCell,deform_mat::Matrix{Float64})
+    fcell.lattice_vectors*=deform_mat
 end
-
-
 
 end

@@ -21,9 +21,8 @@ using ..Model
 using Base.Threads
 using JLD2
 
+
 export pressure_int,Thermostat,Barostat,Hz,RK3_step!,z2atoms,z2cell,cell2z,dUdV_default,update_cell!,initT!,initcell,dUdV_default,Nhcpisoint!,Andersen_Hoover_NPT_step!,LA_step!
-
-
 
 
 """
@@ -46,8 +45,8 @@ function dUdV_default(inicell::UnitCell,interaction::Interaction,dV::BigFloat=Bi
     dcell=deepcopy(inicell)
     dcell.lattice_vectors.=ltv1
     for i in 1:natom
+        ri=(inv(ltv1))*ltv*dcell.atoms[i].position
         for j in 1:3
-            ri=(inv(ltv1))*ltv*dcell.atoms[i].position
             dcell.atoms[i].position[j]=mod(ri[j]+cp[j],2*cp[j])-cp[j]
         end
         # dcell.atoms[i].position=(ltv1)*ltv*dcell.atoms[i].position
@@ -59,8 +58,8 @@ function dUdV_default(inicell::UnitCell,interaction::Interaction,dV::BigFloat=Bi
     dcell=deepcopy(inicell)
     dcell.lattice_vectors.=ltv2
     for i in 1:natom
+        ri=(inv(ltv2))*ltv*dcell.atoms[i].position
         for j in 1:3
-            ri=(inv(ltv2))*ltv*dcell.atoms[i].position
             dcell.atoms[i].position[j]=mod(ri[j]+cp[j],2*cp[j])-cp[j]
         end
         # dcell.atoms[i].position=(ltv2)*ltv*dcell.atoms[i].position
@@ -75,9 +74,6 @@ function dUdV_default(inicell::UnitCell,interaction::Interaction,dV::BigFloat=Bi
     #     write(iojl, "cell_$kk", dcell)
 
     # end
-    
-
-
   return (energy1-energy2)/dV0/2
 end
 
@@ -324,7 +320,7 @@ end
 function update_cell!(z::Vector{Float64},cell::UnitCell)
     natom=Int((length(z)-4)/6)
     rl=z[1:3*natom]
-    pl=z[3*natom+3:3*natom+3*natom+2]
+    pl=z[3*natom+3:6*natom+2]
     v=z[3*natom+2]
     v0=cell.Volume
     if v<0
