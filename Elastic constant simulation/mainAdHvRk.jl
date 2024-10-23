@@ -4,7 +4,7 @@ using LinearAlgebra
 # using Makie
 using GLMakie 
 using LsqFit
-include("Elastic.jl")
+include("src\\Elastic.jl")
 using .Elastic
 using FFMPEG
 using DelimitedFiles
@@ -37,7 +37,7 @@ atoms = [Atom(pos,Mcu*amuM) for pos in atom_positions]
 function lj(r::Float64)
     return 4*(1/r^12-1/r^6)
 end
-function Flj(r::Vector{Float64})
+function Flj(r::SVector{3}{Float64})
     rn=norm(r)
     return 24*(2/rn^14-1/rn^8)*r
 end

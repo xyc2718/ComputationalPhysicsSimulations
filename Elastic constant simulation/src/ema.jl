@@ -6,6 +6,7 @@ Ref:Mendelev, M. I., Kramer, M. J., Becker, C. A., & Asta, M. (2008). Analysis o
 module EMA
 using ..Model
 using LinearAlgebra
+using StaticArrays
 
 export EMACu_phi,EMACu_psi,EMACu_Phi,EMACu_phi_gradient,EMACu_psi_gradient,EMACu_Phi_gradient,EMACu_rhoi,embedding_energyCu,embedding_forceCuij,embedding_forceCui,EMAAl2_Phi,EMAAl2_phi,EMAAl2_psi,EMAAl2_phi_gradient,EMAAl2_psi_gradient,EMAAl2_Phi_gradient,EMAAl2_rhoi,embedding_energyAl2,embedding_forceAl2ij,embedding_forceAl2i,EMAAl1_Phi,EMAAl1_phi,EMAAl1_psi,EMAAl1_phi_gradient,EMAAl1_psi_gradient,EMAAl1_Phi_gradient,EMAAl1_rhoi,embedding_energyAl1,embedding_forceAl1ij,embedding_forceAl1i
 # EMACu_phi(r) 函数
@@ -81,7 +82,7 @@ end
 
 
 # EMACu_phi(r) 的梯度函数
-function EMACu_phi_gradient(vec_r::Vector{Float64})
+function EMACu_phi_gradient(vec_r::SVector{3,Float64})
     dphi_dr = 0.0
     r=norm(vec_r)
     if  r <= 1.8
@@ -101,7 +102,7 @@ function EMACu_phi_gradient(vec_r::Vector{Float64})
 end
 
 # EMACu_psi(r) 的梯度函数
-function EMACu_psi_gradient(vec_r::Vector{Float64})
+function EMACu_psi_gradient(vec_r::SVector{3,Float64})
     dpsi_dr = 0.0
     r=norm(vec_r)
     if 0 <= r <= 2.4
@@ -122,7 +123,7 @@ end
 
 
 # EMACu_Phi(rho) 的梯度函数
-function EMACu_Phi_gradient(rho)
+function EMACu_Phi_gradient(rho::Float64)
     dPhi_drho = 0.0
     if 0 <= rho 
         dPhi_drho += -0.5 * rho^(-0.5)
@@ -183,9 +184,9 @@ function embedding_energyCu(cell::UnitCell)
 end
 
 
-function embedding_forceCuij(cell::UnitCell,i::Int,j::Int;ct::Float64=6.0)
+function embedding_forceCuij(cell::UnitCell,i::Int,j::Int;ct::Float64=6.0)::SVector{3,Float64}
     rij=getrij(cell,i,j)
-    Fij=zeros(3)
+    Fij=SVector{3,Float64}(0.0,0.0,0.0)
     if norm(rij)<ct
         rhoi=EMACu_rhoi(cell,i)
         rhoj=EMACu_rhoi(cell,j)
@@ -194,10 +195,10 @@ function embedding_forceCuij(cell::UnitCell,i::Int,j::Int;ct::Float64=6.0)
     return Fij
 end
 
-function embedding_forceCui(cell,i::Int)
+function embedding_forceCui(cell,i::Int)::SVector{3,Float64}
     natom=length(cell.atoms)
 
-    Fi=zeros(3)
+    Fi=SVector{3,Float64}(0.0,0.0,0.0)
     for j in 1:natom
         if j!=i
             Fi+=embedding_forceCuij(cell,i,j)
@@ -303,7 +304,7 @@ function EMAAl2_Phi(rho::Float64)::Float64
 end
 
 
-function EMAAl2_phi_gradient(vrij::Vector{Float64})::Vector{Float64}
+function EMAAl2_phi_gradient(vrij::SVector{3,Float64})::SVector{3,Float64}
     dphi = 0.0
     rij = norm(vrij)
     
@@ -339,7 +340,7 @@ function EMAAl2_phi_gradient(vrij::Vector{Float64})::Vector{Float64}
     return -dphi * vrij / rij
 end
 
-function EMAAl2_psi_gradient(vrij::Vector{Float64})::Vector{Float64}
+function EMAAl2_psi_gradient(vrij::SVector{3,Float64})::SVector{3,Float64}
     rij = norm(vrij)
     dpsi = 0.0
     
@@ -431,9 +432,9 @@ function embedding_energyAl2(cell::UnitCell)
 end
 
 
-function embedding_forceAl2ij(cell::UnitCell,i::Int,j::Int;ct::Float64=6.0)
+function embedding_forceAl2ij(cell::UnitCell,i::Int,j::Int;ct::Float64=6.0)::SVector{3,Float64}
     rij=getrij(cell,i,j)
-    Fij=zeros(3)
+    Fij=SVector{3,Float64}(0.0, 0.0, 0.0)
     if norm(rij)<ct
         rhoi=EMAAl2_rhoi(cell,i)
         rhoj=EMAAl2_rhoi(cell,j)
@@ -442,10 +443,10 @@ function embedding_forceAl2ij(cell::UnitCell,i::Int,j::Int;ct::Float64=6.0)
     return Fij
 end
 
-function embedding_forceAl2i(cell::UnitCell,i::Int)
+function embedding_forceAl2i(cell::UnitCell,i::Int)::SVector{3,Float64}
     natom=length(cell.atoms)
 
-    Fi=zeros(3)
+    Fi=SVector{3,Float64}(0.0, 0.0, 0.0)
     for j in 1:natom
         if j!=i
             Fi+=embedding_forceAl2ij(cell,i,j)
@@ -526,7 +527,7 @@ function EMAAl1_Phi(rho::Float64)::Float64
     return Phi
 end
 
-function EMAAl1_phi_gradient(vrij::Vector{Float64})::Vector{Float64}
+function EMAAl1_phi_gradient(vrij::SVector{3,Float64})::SVector{3,Float64}
     dphi = 0.0
     rij = norm(vrij)
     if 1.5 ≤ rij ≤ 2.3
@@ -551,7 +552,7 @@ function EMAAl1_phi_gradient(vrij::Vector{Float64})::Vector{Float64}
     return -dphi * vrij / rij
 end
 
-function EMAAl1_psi_gradient(vrij::Vector{Float64})::Vector{Float64}
+function EMAAl1_psi_gradient(vrij::SVector{3,Float64})::SVector{3,Float64}
     rij = norm(vrij)
     dpsi = 0.0
     if 0 ≤ rij ≤ 2.5
@@ -629,9 +630,9 @@ function embedding_energyAl1(cell::UnitCell)
 end
 
 
-function embedding_forceAl1ij(cell::UnitCell,i::Int,j::Int;ct::Float64=6.0)
+function embedding_forceAl1ij(cell::UnitCell,i::Int,j::Int;ct::Float64=6.0)::SVector{3,Float64}
     rij=getrij(cell,i,j)
-    Fij=zeros(3)
+    Fij=SVector{3,Float64}(0.0, 0.0, 0.0)
     if norm(rij)<ct
         rhoi=EMAAl1_rhoi(cell,i)
         rhoj=EMAAl1_rhoi(cell,j)
@@ -640,10 +641,10 @@ function embedding_forceAl1ij(cell::UnitCell,i::Int,j::Int;ct::Float64=6.0)
     return Fij
 end
 
-function embedding_forceAl1i(cell,i::Int)
+function embedding_forceAl1i(cell,i::Int)::SVector{3,Float64}
     natom=length(cell.atoms)
 
-    Fi=zeros(3)
+    Fi=SVector{3,Float64}(0.0, 0.0, 0.0)
     for j in 1:natom
         if j!=i
             Fi+=embedding_forceAl1ij(cell,i,j)

@@ -74,6 +74,7 @@ function BMfit(vl::Vector{Float64},el::Vector{Float64},cpcell::UnitCell,p0::Vect
                 if s>checktime
                     if abs(El[end]-El[end-1])<tol
                         converge=true
+                        println("Energy is converge within $s steps of tol=$tol !")
                         break
                     end
                 end
@@ -81,8 +82,6 @@ function BMfit(vl::Vector{Float64},el::Vector{Float64},cpcell::UnitCell,p0::Vect
         end
         if !converge
             println("Warning!Energy is not converge within $maxiter steps of tol=$tol!")
-        else
-            println("Energy is converge within $maxiter steps of tol=$tol !")
         end
         return El
     end

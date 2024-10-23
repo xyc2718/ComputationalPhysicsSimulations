@@ -152,50 +152,52 @@ j::Int
 
 return rij
 """
-function getrij(cell::UnitCell,i::Int,j::Int;diagonal_mat::Bool=true)
-    cp=cell.copy
-    ltv=cell.lattice_vectors
-    rij=cell.atoms[j].position-cell.atoms[i].position
-    if diagonal_mat
-        is_diagonal=is_diagonal_matrix(ltv)
-    else
-        is_diagonal=true
-    end
-    
-    if  is_diagonal
-        for k in 1:3
-            rijk=rij[k]
-            cpk=cp[k]
-            if rijk>cpk
-                    rij[k]=rijk-cpk*2.0
-            elseif rijk<-cpk
-                    rij[k]=rijk+cpk*2.0
-            end
-        end
-        rij=ltv*rij
-    else
-        values=[1.0,0.0,-1.0]
-        cp =cp.*2.0
-        combinations = product(values .* cp[1], values .* cp[2], values .* cp[3])
-        min_norm = norm(ltv*rij)
-        min_rij=deepcopy(rij)
-        # 计算每个组合加上 rij 的模长
-        for combo in combinations
-            if combo!=[0.0,0.0,0.0]
-                new_rij = rij .+ combo
-                norm_value = norm(ltv*new_rij)
-                if norm_value < min_norm
-                    min_norm = norm_value
-                    min_rij.= new_rij
-                end
-            # println("rij=$rij,min_norm=$min_norm")
-            end
-        end
-        return ltv*min_rij
-    end
-    # println("rij=$min_rij,min_norm=$(norm(ltv*min_rij))") 
-end
+function getrij(cell::UnitCell, i::Int, j::Int; diagonal_mat::Bool=true) :: SVector{3, Float64}
+    cp = SVector{3}(cell.copy)  # 静态数组
+    ltv = SMatrix{3,3}(cell.lattice_vectors)  # 静态矩阵
+    rij = SVector{3}(cell.atoms[j].position - cell.atoms[i].position)  # 3D 向量
 
+    if diagonal_mat
+        is_diagonal = is_diagonal_matrix(ltv)  # 使用 isdiagonal 函数
+    else
+        is_diagonal = true
+    end
+
+    if is_diagonal
+        for k in 1:3
+            rijk = rij[k]
+            cpk = cp[k]
+            if rijk > cpk
+                rij = setindex(rij, rijk - cpk * 2.0, k)
+            elseif rijk < -cpk
+                rij = setindex(rij, rijk + cpk * 2.0, k)
+            end
+        end
+        return ltv * rij  # 直接返回
+    else
+        values = [1.0, 0.0, -1.0]
+        cp = cp .* 2.0  # 提前计算
+
+        # 准备遍历组合
+        combinations = Iterators.product(values .* cp[1], values .* cp[2], values .* cp[3])
+
+        min_rij = rij
+        min_norm2 = norm(ltv * rij)^2  # 使用平方模长
+
+        for combo in combinations
+            if combo != (0.0, 0.0, 0.0)
+                new_rij = rij .+ SVector(combo...)
+                norm2_value = norm(ltv * new_rij)^2  # 使用平方模长避免 sqrt
+                if norm2_value < min_norm2
+                    min_norm2 = norm2_value
+                    min_rij = new_rij
+                end
+            end
+        end
+
+        return ltv * min_rij
+    end
+end
 """
 判断是否为对角阵
 """
@@ -215,13 +217,43 @@ function is_diagonal_matrix(A::Matrix{Float64})
     return true
 end
 
+"""
+判断是否为对角阵
+"""
+function is_diagonal_matrix(A::SMatrix{Float64})
+    rows, cols = size(A)
+    if rows != cols
+        return false
+    end
+    for i in 1:rows
+        for j in 1:cols
+            if i != j && A[i, j] != 0
+                return false
+            end
+        end
+    end
+    
+    return true
+end
+
+
+function is_diagonal_matrix(mat::SMatrix{N, N, T, L}) where {N, T, L}
+    for i in 1:N
+        for j in 1:N
+            if i != j && mat[i, j] != 0
+                return false
+            end
+        end
+    end
+    return true
+end
 
 
 function Default_Embedding_energy(cell::UnitCell)
     return 0.0
     end
 function Default_Embedding_force(cell::UnitCell,i::Int)
-    return zeros(3)
+    return SVector{3}(0.0,0.0,0.0)
 end
 """
 嵌入能项
@@ -244,11 +276,12 @@ end
 """
 相互作用类型,通过二次函数添加截断于cutoff-cutrg - cutoff
 :param energe: 势能函数
-:param force: 力函数
+:param force: 力函数 ::SVector{3, Float64} -> SVector{3, Float64}
 :param cutenerge: 截断势能函数
 :param cutforce: 截断力函数
 :param cutoff: 截断距离
 :param cutrg: 截断范围
+:param embedding
 """
 struct Interaction{F1, F2, F3, F4}
     energy::F1  # 势能函数
@@ -265,7 +298,7 @@ struct Interaction{F1, F2, F3, F4}
         
         # 初始化截断势能和力的参数
         Er2 = energy(cutoff - cutrg)
-        dU2 = -(force(Vector([cutoff - cutrg,0,0])))[1]
+        dU2 = -(force(SVector{3}(cutoff - cutrg,0,0)))[1]
         bb=Vector{Float64}([0.0,0.0,dU2,Er2])
         x1=cutoff
         x2=cutoff-cutrg
@@ -285,7 +318,7 @@ struct Interaction{F1, F2, F3, F4}
         end
 
         # 定义截断力函数，接收向量输入
-        function cutforce(r::Vector{Float64})
+        function cutforce(r::SVector{3, Float64})
             nr = norm(r)
             if nr > cutoff
                 return Vector(zeros(3))
@@ -297,7 +330,7 @@ struct Interaction{F1, F2, F3, F4}
         end
 
         # 定义截断力函数的重载，使其可以接收 Float64 类型的输入
-        cutforce(r::Float64) = (cutforce(Vector([r, 0, 0])))[1]
+        cutforce(r::Float64) = (cutforce(SVector{3}([r, 0, 0])))[1]
 
         # 返回新的 Interaction 实例
         new{F1, F2, typeof(cutenergy), typeof(cutforce)}(energy, force, cutenergy, cutforce, cutoff, cutrg,Embedding())
@@ -310,7 +343,7 @@ struct Interaction{F1, F2, F3, F4}
 
         # 初始化截断势能和力的参数
         Er2 = energy(cutoff - cutrg)
-        dU2 = -(force(Vector([cutoff - cutrg,0,0])))[1]
+        dU2 = -(force(SVector{3}(cutoff - cutrg,0,0)))[1]
         bb=Vector{Float64}([0.0,0.0,dU2,Er2])
         x1=cutoff
         x2=cutoff-cutrg
@@ -331,7 +364,7 @@ struct Interaction{F1, F2, F3, F4}
         end
 
         # 定义截断力函数，接收向量输入
-        function cutforce(r::Vector{Float64})
+        function cutforce(r::SVector{3, Float64})
             nr = norm(r)
             if nr > cutoff
                 return Vector(zeros(3))
@@ -343,7 +376,7 @@ struct Interaction{F1, F2, F3, F4}
         end
 
         # 定义截断力函数的重载，使其可以接收 Float64 类型的输入
-        cutforce(r::Float64) = (cutforce(Vector([r, 0, 0])))[1]
+        cutforce(r::Float64) = (cutforce(SVector{3}([r, 0, 0])))[1]
 
         # 返回新的 Interaction 实例
         new{F1, F2, typeof(cutenergy), typeof(cutforce)}(energy, force, cutenergy, cutforce, cutoff, cutrg,embedding)
@@ -430,12 +463,12 @@ end
 :param i,j: 原子序号
 这里rij其实应该是rji,一开始搞错了,故最后加负号
 """
-function cell_forceij(cell::UnitCell, interaction::Interaction, i::Int, j::Int;iffilter::Bool=false)
+function cell_forceij(cell::UnitCell, interaction::Interaction, i::Int, j::Int;iffilter::Bool=false)::SVector{3, Float64}
     cutoff = interaction.cutoff
     rij=getrij(cell,i,j)
     nr=norm(rij)
     if nr>cutoff
-        force=zeros(3)
+        force=SVector{3,Float64}(0.0, 0.0, 0.0)
     else
         force=interaction.cutforce(rij)
     end 
@@ -451,16 +484,16 @@ end
 :param interaction: 相互作用
 :param i: 原子序号
 """
-function cell_forcei(cell::UnitCell,interaction::Interaction,i::Int;iffilter::Bool=false)
-    forcei=zeros(3)
+function cell_forcei(cell::UnitCell,interaction::Interaction,i::Int;iffilter::Bool=false)::SVector{3,Float64}
+    forcei=SVector{3}(0.0, 0.0, 0.0)
         for j in 1:length(cell.atoms)
             if i!=j
-                forcei.+=cell_forceij(cell,interaction,i,j,iffilter=iffilter)
+                forcei+=cell_forceij(cell,interaction,i,j,iffilter=iffilter)
             end
         end
     if interaction.embedding.ifembedding
         # forcei.-=Ngradient0(cell,i,interaction.embedding.embedding_energy,[])
-        forcei.+=interaction.embedding.embedding_force(cell,i)
+        forcei+=interaction.embedding.embedding_force(cell,i)
     end
     return forcei
 end
