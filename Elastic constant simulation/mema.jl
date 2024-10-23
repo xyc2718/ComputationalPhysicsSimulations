@@ -283,13 +283,11 @@ function drho3sq(cell::UnitCell,i::Int,beta3::Float64=beta3,Re::Float64=Re;rc::F
     end
     return ree1-ree2*0.6
     end
-function  Ngradiant(cell::UnitCell,i::Int,f::Function,para::Vector;dr::Vector{Float64}=[-0.001,-0.01,0.001])
+function  Ngradiant(cell::UnitCell,i::Int,f::Function,para::Vector;dr::Vector{Float64}=[0.001,0.001,0.001])
     df=zeros(3)
     lt=cell.lattice_vectors
     invlt=inv(lt)
     drm=Diagonal(dr)
-    
-
     for j in 1:3
         dri=invlt*drm[j,:]
         dcell=deepcopy(cell)
@@ -297,9 +295,7 @@ function  Ngradiant(cell::UnitCell,i::Int,f::Function,para::Vector;dr::Vector{Fl
         f1=f(dcell,i,para...)
         dcell.atoms[i].position-=2*dri
         f2=f(dcell,i,para...)
-        
         df[j]=(f1-f2)/2/dr[j]
-
     end
 
     return df

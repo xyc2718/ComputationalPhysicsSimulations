@@ -6,15 +6,12 @@ The basic types and properties of unit cells are implemented and calculated here
 module Model
     
 using StaticArrays
-# using Plots
 using LinearAlgebra
-# using Makie
-using GLMakie 
 using Base.Threads
 using IterTools
-export Atom, UnitCell, copycell, visualize_unitcell_atoms, Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,kb,visualize_unitcell_atoms0,filtercell,cell_forceij!,cell_forcei!,force_tensor!,cell_temp,Ngradiant0,getrij,is_diagonal_matrix,Embedding,dUdhij
+export Atom, UnitCell, copycell,  Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,filtercell,cell_forceij!,cell_forcei!,force_tensor!,cell_temp,Ngradient0,getrij,is_diagonal_matrix,Embedding,dUdhij
     
-global const kb=1.0
+global const kb=8.617332385e-5 #eV/K
 
 """
 原子类型
@@ -141,71 +138,9 @@ function filtercell(cell::UnitCell)
     return UnitCell(cell.lattice_vectors,atoms,cell.copy)
 end
 
-# 定义一个颜色映射函数
-function color_map(cn)
-        colors = [:red, :green, :blue, :yellow, :purple, :orange, :cyan, :magenta]
-        return colors[mod(cn - 1, length(colors)) + 1]
-end
 
-"""
-可视化晶胞原子,并标注晶格向量
-:param cell: UnitCell晶胞
-:param markersize:Int 标记大小
-:param veccolor: 向量颜色
-:param linewith: 线宽
-"""
-function visualize_unitcell_atoms(cell::UnitCell;markersize=10,veccolor=:blue,linewith=0.1)::Figure
-    fig =GLMakie.Figure(size = (800, 600))
-    ax = GLMakie.Axis3(fig[1, 1], title = "Visualization of Atoms in the Unit Cell", 
-               xlabel = "X", ylabel = "Y", zlabel = "Z")
-    M=cell.lattice_vectors
-    for atom in cell.atoms
-        p=M*atom.position
-        cni=atom.cn
-        GLMakie.scatter!(ax,p..., color = color_map(cni), markersize = markersize)
-    end
-    
-    # 绘制晶格向量（晶胞的边缘）
-    origin=GLMakie.Point3f0(0,0,0)
-    for (k,vec) in enumerate(eachcol(cell.lattice_vectors))
-        vc=GLMakie.Point3f0(vec*cell.copy[k])
-        GLMakie.arrows!(ax, [origin], [origin + vec], color = veccolor, linewidth = linewith)
-    end
-    rg=maximum(cell.lattice_vectors*cell.copy)
-    rgmin=minimum(cell.lattice_vectors*cell.copy)
-    xlims!(ax, -rg, rg)
-    ylims!(ax, -rg, rg)
-    zlims!(ax, -rg, rg)
-    return fig
-end
 
-"""
-可视化晶胞原子,用于测试原子因某些原因跑出周期范围,并可标记原子序号,用于调试
-:param cell:UnitCell
-:param markersize:Int 标记大小
-:param iftext:Bool 是否标记原子序号
-"""
-function visualize_unitcell_atoms0(cell::UnitCell;markersize=10,iftext::Bool=false)::Figure
-    fig =GLMakie.Figure(size = (800, 600))
-    ax = GLMakie.Axis3(fig[1, 1], title = "Visualization of Atoms in the Unit Cell", 
-               xlabel = "X", ylabel = "Y", zlabel = "Z")
-    M=cell.lattice_vectors
-    for i in 1:length(cell.atoms)
-        atom=cell.atoms[i]
-        p=M*atom.position
-        cni=atom.cn
-        scatter!(ax,p..., color = color_map(cni), markersize = markersize)
-    end
-    if iftext
-        for i in 1:length(cell.atoms)
-            atom=cell.atoms[i]
-            p=M*atom.position
-            text!(ax,string(i),position=Point3f(p))
-        end
-    end
 
-    return fig
-end
 
 
 """
@@ -217,11 +152,17 @@ j::Int
 
 return rij
 """
-function getrij(cell::UnitCell,i::Int,j::Int)
+function getrij(cell::UnitCell,i::Int,j::Int;diagonal_mat::Bool=true)
     cp=cell.copy
     ltv=cell.lattice_vectors
     rij=cell.atoms[j].position-cell.atoms[i].position
-    if  is_diagonal_matrix(ltv)
+    if diagonal_mat
+        is_diagonal=is_diagonal_matrix(ltv)
+    else
+        is_diagonal=true
+    end
+    
+    if  is_diagonal
         for k in 1:3
             rijk=rij[k]
             cpk=cp[k]
@@ -415,7 +356,7 @@ end
 :param cell: 晶胞
 """
 function cell_temp(cell::UnitCell)
-    kb=1.0
+    kb=8.617332385e-5 #eV/K
     Ek=0.0
     for atom in cell.atoms
         p=atom.momentum
@@ -469,15 +410,13 @@ function cell_energy(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=f
     energy=0.0
     energyeb=0.0
     for i in 1:length(cell.atoms)
-        for j in 1:length(cell.atoms)
-            if i!=j
+        for j in i+1:length(cell.atoms)
                 energy+=cell_energyij(cell,interaction,i,j,ifnormalize=ifnormalize)
                 # println("energy at $i $j is $energy")
-            end
         end
     end
     if interaction.embedding.ifembedding
-        energyeb+=interaction.embedding.embedding_energy(cell)
+        energyeb=interaction.embedding.embedding_energy(cell)
     end
     return energy+energyeb
 end
@@ -485,7 +424,7 @@ end
 
 
 """
-计算晶胞中i,j原子之间的相互作用力,采用邻近最小像,assert:cutoff<box/2
+计算晶胞中i受到原子j的相互作用力,采用邻近最小像,assert:cutoff<box/2
 :param cell: 晶胞
 :param interaction: 相互作用
 :param i,j: 原子序号
@@ -520,13 +459,13 @@ function cell_forcei(cell::UnitCell,interaction::Interaction,i::Int;iffilter::Bo
             end
         end
     if interaction.embedding.ifembedding
-        # forcei.-=Ngradiant0(cell,i,interaction.embedding.embedding_energy,[])
-        forcei.-=interaction.embedding.embedding_force(cell,i)
+        # forcei.-=Ngradient0(cell,i,interaction.embedding.embedding_energy,[])
+        forcei.+=interaction.embedding.embedding_force(cell,i)
     end
     return forcei
 end
 
-function  Ngradiant0(cell::UnitCell,i::Int,f::Function,para::Vector;dr::Vector{Float64}=[0.001,0.001,0.001])
+function  Ngradient0(cell::UnitCell,i::Int,f::Function,para::Vector;dr::Vector{Float64}=[0.001,0.001,0.001])
     df=zeros(3)
     lt=cell.lattice_vectors
     invlt=inv(lt)

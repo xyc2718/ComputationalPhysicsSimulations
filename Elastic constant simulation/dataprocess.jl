@@ -3,7 +3,7 @@ code to process log file
 @author xyc
 @email:22307110070m.fudan.edu.cn
 """
-projectpath = "output\\AdHv_444_Ts=1_ps=100"
+projectpath = "output\\AdHvrealUni_444_Ts=1_ps=100"
 generate_frame=false
 function fsel(i::Int)
     return true
@@ -83,17 +83,17 @@ println("Results written to $propertypath")
 if generate_frame
 datacell = JLD2.jldopen(cellpath, "r") do file
     Dict(name => read(file, name) for name in keys(file))
-end
-
-outputfold=framepath
-sorted_keys = sort(collect(keys(datacell)), by = x -> parse(Int, split(x, "_")[2]))
-isdir(outputfold) || mkpath(outputfold)
-for key in sorted_keys
-    i = parse(Int, split(key, "_")[2])
-    if fsel(i) 
-        fig=visualize_unitcell_atoms(datacell[key])
-        save(joinpath(outputfold, "frame$i.jpg"), fig)
     end
-end
+
+    outputfold=framepath
+    sorted_keys = sort(collect(keys(datacell)), by = x -> parse(Int, split(x, "_")[2]))
+    isdir(outputfold) || mkpath(outputfold)
+    for key in sorted_keys
+        i = parse(Int, split(key, "_")[2])
+        if fsel(i) 
+            fig=visualize_unitcell_atoms(datacell[key])
+            save(joinpath(outputfold, "frame$i.jpg"), fig)
+        end
+    end
 
 end

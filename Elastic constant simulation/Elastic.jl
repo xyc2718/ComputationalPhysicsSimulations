@@ -3,18 +3,20 @@ module Elastic
 include("modle.jl")
 include("MD.jl")
 include("cellmin.jl")
-include("mema.jl")
+# include("mema.jl")
 include("deformer.jl")
-include("emaCu.jl")
+include("ema.jl")
+include("visualize.jl")
 using .Model
-using .MEMA
+# using .MEMA
 using .MD
 using .cellmin
 using .Deformer
-using .EMACu
+using .EMA
+using .Visualize
 
 
-modules = [Model, MD, cellmin, MEMA,Deformer,EMACu]
+modules = [Model, MD, cellmin, Deformer,EMA,Visualize]
 
 for mod in modules
     for name in names(mod, all=true)

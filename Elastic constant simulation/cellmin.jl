@@ -9,7 +9,8 @@ using GLMakie
 using LsqFit
 using ..Model
     
-export birch_murnaghan,BMfit
+export birch_murnaghan,BMfit,gradientStep!,minimizeEnergy!,gradientDescent!
+
 """
 BM 函数
 :param V: 体积
@@ -60,4 +61,73 @@ function BMfit(vl::Vector{Float64},el::Vector{Float64},cpcell::UnitCell,p0::Vect
     return min_lattice_constant,fig
     end
 
+    function gradientDescent!(cell::UnitCell,interaction::Interaction;ap::Float64=0.01,tol=1e-8,maxiter=1000,checktime=10)
+        El=Vector{Float64}([])
+        converge=false
+        for s in 1:maxiter
+           
+            gradientStep!(cell,interaction,ap=ap)
+            if mod(s,checktime)==0
+                Ei=cell_energy(cell,interaction)
+                println("$step=$s,E=$Ei")
+                push!(El,Ei)
+                if s>checktime
+                    if abs(El[end]-El[end-1])<tol
+                        converge=true
+                        break
+                    end
+                end
+            end
+        end
+        if !converge
+            println("Warning!Energy is not converge within $maxiter steps of tol=$tol!")
+        else
+            println("Energy is converge within $maxiter steps of tol=$tol !")
+        end
+        return El
+    end
+
+    function gradientStep!(cell::UnitCell,interaction::Interaction;ap::Float64=0.01)
+        ltv=cell.lattice_vectors
+        invlt=inv(ltv)
+        m=cell.atoms[1].mass
+        cp=cell.copy
+        fl=fill(zeros(3),length(cell.atoms))
+         for i in eachindex(cell.atoms)
+            fi=cell_forcei(cell,interaction,i)
+            fl[i]=deepcopy(fi)
+         end
+        #  println(fl)
+        #  println(cell_forcei(cell,interaction,32))
+         for i in eachindex(cell.atoms)
+          cell.atoms[i].position+=ap*invlt*fl[i]
+            # println(ap*invlt*fl[i])
+            for k in 1:3
+             cell.atoms[i].position[k]=mod(cell.atoms[i].position[k]+cp[k],2*cp[k])-cp[k]
+             end
+         end 
+    end
+
+
+    function minimizeEnergy!(cell::UnitCell,interaction::Interaction;rg::Vector{Float64}=[1.0,10.0],n::Int=1000)
+        El=Vector{Float64}([])
+        cl = range(rg[1], stop=rg[2], length=n)
+        for lt in cl
+            cell.lattice_vectors=collect((Matrix([
+                lt 0.0 0.0; #a1
+                0.0 lt 0.0; #a2
+                0.0 0.0 lt] #a3
+            ))')
+            Ei=cell_energy(cell,interaction)
+            push!(El,Ei)
+        end
+        minindex=argmin(El)
+        lt=cl[minindex]
+        cell.lattice_vectors=collect((Matrix([
+            lt 0.0 0.0; #a1
+            0.0 lt 0.0; #a2
+            0.0 0.0 lt] #a3
+        ))')
+        return cl,El
+    end
 end

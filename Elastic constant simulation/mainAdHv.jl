@@ -11,6 +11,10 @@ using DelimitedFiles
 using Distributions
 using JLD2
 
+kb=8.617332385e-5 #eV/K
+amuM=1.03642701e-4 #[m]/amu
+Mcu=63.546 #amu
+P00=160.2176565 #Gpa/[p]
 atom_positions = [
     Vector([0.0, 0.0, 0.0]),
     Vector([0.0, 0.5, 0.5]),
@@ -29,7 +33,7 @@ atom_positions = [
 ] 
 
 # 创建铜的原子列表
-atoms = [Atom(pos) for pos in atom_positions]
+atoms = [Atom(pos,Mcu*amuM) for pos in atom_positions]
 #lj势能
 function lj(r::Float64)
     return 4*(1/r^12-1/r^6)
@@ -42,30 +46,38 @@ end
 ct=3.0
 interaction = Interaction(lj, Flj, ct, 0.1)
 
-Ts=1.0
-Ps=100.0
-Tb=1.5*Ts
-Pb=Ps*0.5
+Ts=300.0
+Ps=0.0
+Tb=Ts
+Pb=Ps
 TQ=10
 TW=1000
 HooverChainN=4
 dt=0.001
-maxstep=1000000
+maxstep=100000
 cpc=[2,2,2]
 dumpsequence=1
 printsequence=10
-projectname="AdHv_444_Ts=1_ps=100"
+projectname="AdHvrealUni_444_Ts=1_ps=100"
 
 
+inicellmethod="Pb and Tb"
 
+interaction = Interaction(lj, Flj, ct, 0.1)
 
-inicell=initcell(Pb,Tb,atoms,interaction,cp=cpc,Prg=[0.4,6.0])
+if inicellmethod=="Pb and Tb"
+    inicell=initcell(Pb,Tb,atoms,interaction,cp=cpc,Prg=[0.5,6.0],n=100)
+else
+    inicell=minEenergyCell(Tb,atoms,interaction,cpc)
+    inicellmethod="min energy with Tb"
+end
+
 println("inipressure=$(pressure_int(inicell,interaction)),temp=$(cell_temp(inicell))")
 cell=deepcopy(inicell)
 natom=length(inicell.atoms)
 
-Qs=3*natom*Ts*(TQ*dt)^2
-Ws=3*natom*Ts*(TW*dt)^2
+Qs=3*natom*Ts*kb*(TQ*dt)^2
+Ws=3*natom*Ts*kb*(TW*dt)^2
 
 thermostatchain = [Thermostat(Ts, Qs, 0.0, 0.0) for i in 1:HooverChainN]
 for i in eachindex(thermostatchain)

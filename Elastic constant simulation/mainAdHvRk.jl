@@ -10,7 +10,10 @@ using FFMPEG
 using DelimitedFiles
 using Distributions
 using JLD2
-
+kb=8.617332385e-5 #eV/K
+amuM=1.03642701e-4 #[m]/amu
+Mcu=63.546 #amu
+P00=160.2176565 #Gpa/[p]
 atom_positions = [
     Vector([0.0, 0.0, 0.0]),
     Vector([0.0, 0.5, 0.5]),
@@ -29,7 +32,7 @@ atom_positions = [
 ] 
 
 # 创建铜的原子列表
-atoms = [Atom(pos) for pos in atom_positions]
+atoms = [Atom(pos,Mcu*amuM) for pos in atom_positions]
 #lj势能
 function lj(r::Float64)
     return 4*(1/r^12-1/r^6)
@@ -42,27 +45,36 @@ end
 
 
 
-projectname="AdHvRk3_444_Ts=1_p=100"
-ct=3.0
-Ts=1.0
-Ps=100.0
-dt=0.001
-Tb=1.5*Ts
-Pb=Ps*0.5
+projectname="AdHvRk3_222metalunit_Ts=1_p=100"
+ct=6.0
+Ts=300.0 #K
+Ps=0.0 #[p]
+dt=0.001 #ps
+Tb=Ts
+Pb=Ps
 maxstep=100000
 dumpsequence=1
 printsequence=10
 TQ=10
 TW=1000
-cpc=[2,2,2]
+cpc=[1,1,1]
+inicellmethod="Pb and Tb"
+
 interaction = Interaction(lj, Flj, ct, 0.1)
-inicell=initcell(Pb,Tb,atoms,interaction,cp=cpc,Prg=[0.03,10.0])
+
+if inicellmethod=="Pb and Tb"
+    inicell=initcell(Pb,Tb,atoms,interaction,cp=cpc,Prg=[1.3,6.0])
+else
+    inicell=minEenergyCell(Tb,atoms,interaction,cpc)
+    inicellmethod="min energy with Tb"
+end
+
 println("initemp=$(cell_temp(inicell))")
 println("inipressure=$(pressure_int(inicell,interaction))")
 println(inicell.lattice_vectors)
 natom=length(inicell.atoms)
-Qs=3*natom*Ts*(TQ*dt)^2
-Ws=3*natom*Ts*(TW*dt)^2
+Qs=3*natom*Ts*kb*(TQ*dt)^2
+Ws=3*natom*Ts*kb*(TW*dt)^2
 thermostat = Thermostat(Ts, Qs, 0.0, 0.0)
 barostat=Barostat(Ps,Ws,inicell.Volume,0.0)
 
@@ -110,6 +122,7 @@ open("$basepath\\Config.txt", "w") do logfile
     write(logfile, "ct=$ct\n")
     write(logfile, "dumpsequence=$dumpsequence\n")
     write(logfile, "printsequence=$printsequence\n")
+    write(logfile, "inicellmethod=$inicellmethod\n")
 end
 
 open("$basepath\\Log.txt", "w") do io

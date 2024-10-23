@@ -22,7 +22,7 @@ using Base.Threads
 using JLD2
 
 
-export pressure_int,Thermostat,Barostat,Hz,RK3_step!,z2atoms,z2cell,cell2z,dUdV_default,update_cell!,initT!,initcell,dUdV_default,Nhcpisoint!,Andersen_Hoover_NPT_step!,LA_step!
+export pressure_int,Thermostat,Barostat,Hz,RK3_step!,z2atoms,z2cell,cell2z,dUdV_default,update_cell!,initT!,initcell,dUdV_default,Nhcpisoint!,Andersen_Hoover_NPT_step!,LA_step!,minEenergyCell
 
 
 """
@@ -145,7 +145,7 @@ end
 :param dUdV: function for dUdV
 """
 function Hz(z::Vector{Float64},cell::UnitCell,interaction::Interaction,thermostat::Thermostat,barostat::Barostat;dUdV::T=dUdV_default) where T
-    kb=1.0
+    kb=8.617332385e-5 #eV/K
     dim=3*length(cell.atoms)+2
     Hz=zeros(dim*2)
     natom=length(cell.atoms)
@@ -189,7 +189,7 @@ end
 :param thermostat: Thermostat
 """
 function Hz(z::Vector{Float64},cell::UnitCell,interaction::Interaction,thermostat::Thermostat)
-    kb=1.0
+    kb=8.617332385e-5 #eV/K
     dim=3*length(cell.atoms)+1
     Hz=zeros(dim*2)
     natom=length(cell.atoms)
@@ -416,7 +416,7 @@ end
 
 function initT!(T::Float64,cell::UnitCell) 
     m=cell.atoms[1].mass
-    kb=1.0
+    kb=8.617332385e-5 #eV/K
     natom=length(cell.atoms)
     sigma=sqrt(kb*T/m)
     Ekstd=3*natom*kb*T/2
@@ -427,20 +427,55 @@ function initT!(T::Float64,cell::UnitCell)
     for i in 1:natom
         Ek+=0.5*norm(cell.atoms[i].momentum)^2/m
     end
+    pc=zeros(3)
+    for i in 1:natom
+        pc.+=cell.atoms[i].momentum
+    end
+    pc./=natom
+    for i in 1:natom
+        cell.atoms[i].momentum.=cell.atoms[i].momentum.-pc
+    end
 
     for i in 1:natom
         cell.atoms[i].momentum=cell.atoms[i].momentum.*sqrt(Ekstd/Ek)
     end
 end
 
+function minEenergyCell(T::Float64,atoms::Vector{Atom},interaction::Interaction,cp::Vector{Int};rg=[0.5,8.0],n::Int=100)
+    cl = range(rg[1], stop=rg[2], length=n)
+    El=Vector{Float64}([])
+    for lt in cl
+        lattice_vectors=collect((Matrix([
+            lt 0.0 0.0; #a1
+            0.0 lt 0.0; #a2
+            0.0 0.0 lt] #a3
+        ))')
+        cell=UnitCell(lattice_vectors,atoms)
+        cpcell=copycell(cell,cp...)
+        fcell=filtercell(cpcell)
+        Ei=cell_energy(fcell,interaction)
+        push!(El,Ei)
+    end
 
-function initcell(P::Float64,T::Float64,atoms::Vector{Atom},interaction::Interaction;cp::Vector{Int}=[1,1,1],Prg::Vector{Float64}=[0.05,3.0])
-    m=atoms[1].mass
-    kb=1.0
-    natom=length(atoms)
-    a,b=Prg
-    for i in 1:100
-        lt=a
+    minindex=argmin(El)
+    lt=cl[minindex]
+    lattice_vectors=collect((Matrix([
+        lt 0.0 0.0; #a1
+        0.0 lt 0.0; #a2
+        0.0 0.0 lt] #a3
+    ))')
+    cell=UnitCell(lattice_vectors,atoms)
+    cpcell=copycell(cell,cp...)
+    fcell=filtercell(cpcell)
+    initT!(T,fcell)
+    return fcell
+
+end
+
+
+function initcell(P::Float64,T::Float64,atoms::Vector{Atom},interaction::Interaction;cp::Vector{Int}=[1,1,1],Prg::Vector{Float64}=[0.5,6.0],n=100)
+    cl = range(Prg[1], stop=Prg[2], length=n)
+    for lt in cl
         lattice_vectors = (Matrix([
                             lt 0.0 0.0; #a1
                             0.0 lt 0.0; #a2
@@ -451,42 +486,11 @@ function initcell(P::Float64,T::Float64,atoms::Vector{Atom},interaction::Interac
         fcell=filtercell(cpcell)
         initT!(T,fcell)
         pa=pressure_int(fcell,interaction)-P
-        
-        lt=b
-        lattice_vectors = (Matrix([
-                            lt 0.0 0.0; #a1
-                            0.0 lt 0.0; #a2
-                            0.0 0.0 lt] #a3
-                        ))
-        cell=UnitCell(lattice_vectors,atoms)
-        cpcell=copycell(cell,cp...)
-        fcell=filtercell(cpcell)
-        initT!(T,fcell)
-        pb=pressure_int(fcell,interaction)-P
-        if pa*pb>0
-            throw("Pa,Pb符号相同 at a=$a,Pa=$pa,$b=b,Pb=$pb")
-        end
-        c=(a+b)/2
-        lt=c
-        lattice_vectors = (Matrix([
-                            lt 0.0 0.0; #a1
-                            0.0 lt 0.0; #a2
-                            0.0 0.0 lt] #a3
-                        ))
-        cell=UnitCell(lattice_vectors,atoms)
-        cpcell=copycell(cell,cp...)
-        fcell=filtercell(cpcell)
-        initT!(T,fcell)
-        pc=pressure_int(fcell,interaction)-P
-        if abs(pc)<1e-2
+        if abs(pa)<1e-2
             return fcell
         end
-        if pa*pc<0
-            b=c
-        else
-            a=c
-        end
     end
+    throw("warning Can't find the right lattice constant for P=$P,T=$T in Range $Prg for $n points")
 end
 
 
@@ -501,7 +505,7 @@ end
 :param nresn: Float64
 """
 function Nhcpisoint!(cell::UnitCell,interaction::Interaction,thermostatchain::Vector{Thermostat},barostat::Barostat,dt::Float64;nresn::Int=3)
-    kb=1.0
+    kb=8.617332385e-5 #eV/K
     natom=length(cell.atoms)
     Nf=3*natom ##自由度
     T=thermostatchain[1].T
@@ -658,7 +662,7 @@ Ref:Bereau, T. (2015). Multi-timestep Integrator for the Modified Andersen Baros
 """
 function LA_step!(fcell::UnitCell,interaction::Interaction,dt::Float64,T::Float64,barostat::Barostat,gamma0::Float64,gammav::Float64,n::Int=4)
 
-        kb=1.0
+        kb=8.617332385e-5 #eV/K
         dist=Normal(0,1)        
         Pe=barostat.Pe
         ddt=dt/n
