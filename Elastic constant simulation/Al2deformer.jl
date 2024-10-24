@@ -54,7 +54,7 @@ atoms = [Atom(pos,Mcu*amuM) for pos in atom_positions]
 projectname="deform_Al2_222"
 cp=[2,2,2]
 ct=6.5
-deltalist=range(-0.01,0.01,length=50)
+deltalist=range(-0.01,0.01,length=20)
 flaglist=[1,2,3,4,5,6]
 checkstep=10
 ap=0.1
@@ -121,16 +121,25 @@ for flag in flaglist
         cell=deepcopy(fcell)
         dmat=deform_mat(flag,delta)
         deform_cell!(cell,dmat)
+        # El=[]
         El=gradientDescent!(cell,interaction,ap=ap,tol=tol,maxiter=maxiter,checktime=checkstep)
         forcetensor=force_tensor(cell,interaction)
-        dUdh=dUdhij(cell,interaction)
+        dUdh=dUdhij(cell,interaction,BigFloat("1e-8"))
+        ltv=cell.lattice_vectors
+        V=cell.Volume
+        ft0=forcetensor-(dUdh*transpose(ltv))./V
     data = Dict(
         "flag" => flag,
         "delta"=> delta,
-        "forcetensor" => forcetensor,
+        "forcetensor0" => forcetensor,
         "dUdhij" => dUdh,
+        "hij"=>ltv,
+        "V"=>V,
+        "forcetensor"=>ft0,
         "Eenergy"=>El
     )
+
+    println(data)
     write(file, JSON.json(data))
     write(file, "\n")
     

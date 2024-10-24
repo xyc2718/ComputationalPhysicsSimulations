@@ -534,19 +534,20 @@ end
 :param interaction: 相互作用
 """
 function force_tensor(cell::UnitCell,interaction::Interaction)
-    tensor=zeros(3,3)
+    tensor=SMatrix{3, 3}(0, 0, 0, 0, 0, 0, 0, 0, 0)
     v=cell.Volume
+    ltv=cell.lattice_vectors
     for i in 1:length(cell.atoms)
-        for a in 1:3
-            for b in 1:3
-                forcei=cell_forcei(cell,interaction,i)
-                atom=cell.atoms[i]
-                tensor[a,b]+=forcei[a]*atom.position[b]/2+atom.momentum[a]*atom.momentum[b]/atom.mass
-            end
-        end
+            forcei=cell_forcei(cell,interaction,i)
+            ri=ltv*(cell.atoms[i].position)
+            p=cell.atoms[i].momentum
+            m=cell.atoms[i].mass
+            tensor+=forcei*ri'+p*p'./m
     end
     return tensor./v
 end
+
+
 
 
 """
@@ -569,7 +570,9 @@ function dUdhij(fcell::UnitCell,interaction::Interaction,dr::BigFloat=BigFloat("
                         atom.position[k]=mod(ri[k]+cp[k],2*cp[k])-cp[k]
                     end
             end
+            dcell.lattice_vectors=ltv2
             energy1=cell_energy(dcell,interaction)
+
             dcell=deepcopy(fcell)
             ltv2=deepcopy(ltv)
             ltv2[i,j]-=dltv
@@ -580,7 +583,7 @@ function dUdhij(fcell::UnitCell,interaction::Interaction,dr::BigFloat=BigFloat("
                         atom.position[k]=mod(ri[k]+cp[k],2*cp[k])-cp[k]
                     end
             end
-            
+            dcell.lattice_vectors=ltv2
             energy2=cell_energy(dcell,interaction)
             # println("i=$i,j=$j,dE=$(energy1-energy2)")
             re[i,j]=(energy1-energy2)/dltv/2

@@ -74,14 +74,14 @@ function BMfit(vl::Vector{Float64},el::Vector{Float64},cpcell::UnitCell,p0::Vect
                 if s>checktime
                     if abs(El[end]-El[end-1])<tol
                         converge=true
-                        println("Energy is converge within $s steps of tol=$tol !")
+                        println("Energy is converge within $s steps of tol=$(tol) !")
                         break
                     end
                 end
             end
         end
         if !converge
-            println("Warning!Energy is not converge within $maxiter steps of tol=$tol!")
+            println("Warning!Energy is not converge within $maxiter steps of tol=$tol !")
         end
         return El
     end
@@ -117,6 +117,31 @@ function BMfit(vl::Vector{Float64},el::Vector{Float64},cpcell::UnitCell,p0::Vect
                 0.0 lt 0.0; #a2
                 0.0 0.0 lt] #a3
             ))')
+            Ei=cell_energy(cell,interaction)
+            push!(El,Ei)
+        end
+        minindex=argmin(El)
+        lt=cl[minindex]
+        cell.lattice_vectors=collect((Matrix([
+            lt 0.0 0.0; #a1
+            0.0 lt 0.0; #a2
+            0.0 0.0 lt] #a3
+        ))')
+        return cl,El
+    end
+
+    
+    function minimizeEnergyWithGradient!(cell::UnitCell,interaction::Interaction;rg::Vector{Float64}=[1.0,10.0],n::Int=1000,maxiter::Int=100,tol::Float64
+        =1e-6)
+        El=Vector{Float64}([])
+        cl = range(rg[1], stop=rg[2], length=n)
+        for lt in cl
+            cell.lattice_vectors=collect((Matrix([
+                lt 0.0 0.0; #a1
+                0.0 lt 0.0; #a2
+                0.0 0.0 lt] #a3
+            ))')
+            gradientDescent!(cell,interaction,maxiter=maxiter,tol=tol)
             Ei=cell_energy(cell,interaction)
             push!(El,Ei)
         end
