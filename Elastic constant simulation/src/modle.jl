@@ -9,7 +9,7 @@ using StaticArrays
 using LinearAlgebra
 using Base.Threads
 using IterTools
-export Atom, UnitCell, copycell,  Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,filtercell,cell_forceij!,cell_forcei!,force_tensor!,cell_temp,Ngradient0,getrij,is_diagonal_matrix,Embedding,dUdhij,randcell!,Force_Tensor,getrij0,update_rmat!,update_rmati!,update_fmat!,cell_forcei0
+export Atom, UnitCell, copycell,  Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,filtercell,cell_forceij!,cell_forcei!,force_tensor!,cell_temp,Ngradient0,getrij,is_diagonal_matrix,Embedding,dUdhij,randcell!,Force_Tensor,getrij0,update_rmat!,update_rmati!,update_fmat!,cell_forcei0,set_lattice_vector!,apply_PBC!
     
 global const kb=8.617332385e-5 #eV/K
 
@@ -218,7 +218,7 @@ end
 function update_rmat!(cell::UnitCell)
     cell.ifrmat = true
     atom=length(cell.atoms)
-    for i in 1:atom
+Threads.@threads for i in 1:atom
         for j in i:atom
             rij=getrij0(cell,i,j)
             cell.rmat[i,j] = rij
@@ -431,14 +431,19 @@ end
 
 
 
+
+
 function update_fmat!(cell::UnitCell,interaction::Interaction)
     cell.iffmat = true
-    atom=length(cell.atoms)
-    for i in 1:atom
-            fi=cell_forcei0(cell,interaction,i)
-            cell.fmat[i] =fi
+   atom=length(cell.atoms)
+    Threads.@threads  for i in 1:atom
+                fi=cell_forcei0(cell,interaction,i)
+                cell.fmat[i] =fi
     end
+
 end
+
+
 
 """
 计算cell温度,减去了质心动能
@@ -674,6 +679,34 @@ function dUdhij(fcell::UnitCell,interaction::Interaction,dr::BigFloat=BigFloat("
     end
 
     return re
+end
+
+
+function apply_PBC!(cell::UnitCell,interaction::Interaction)
+    a,b,c=cell.copy
+    for i in eachindex(cell.atoms)
+        for k in 1:3
+            ri=cell.atoms[i].position
+            ri[1]=mod(ri[1]+a,2*a)-a
+            ri[2]=mod(ri[2]+b,2*b)-b
+            ri[3]=mod(ri[3]+c,2*c)-c
+            cell.atoms[i].position=ri
+        end
+    
+    end
+    update_rmat!(cell)
+    update_fmat!(cell,interaction)
+
+end
+
+function set_lattice_vector!(cell::UnitCell,lt::Matrix{Float64},interaction::Interaction)
+    lt0=cell.lattice_vectors
+    cell.lattice_vectors=lt
+    invlt=inv(lt)
+    for i in eachindex(cell.atoms)
+        cell.atoms[i].position=invlt*lt0*cell.atoms[i].position
+    end
+    apply_PBC!(cell,interaction)
 end
 
 

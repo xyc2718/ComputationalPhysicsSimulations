@@ -10,6 +10,9 @@ using FFMPEG
 using DelimitedFiles
 using Distributions
 using JLD2
+using base.Threads
+println("Number of threads: ", Threads.nthreads())
+
 kb=8.617332385e-5 #eV/K
 amuM=1.03642701e-4 #[m]/amu
 MAl=26.9815385 #amu

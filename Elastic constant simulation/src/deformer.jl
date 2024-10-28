@@ -19,6 +19,8 @@ function deform_mat(flag::Int, delta::Float64)
         return [1.0 0.0 delta; 0.0 1.0 0.0; 0.0 0.0 1.0]
     elseif flag == 6
         return [1.0 0.0 0.0; 0.0 1.0 delta; 0.0 0.0 1.0]
+    elseif flag==0
+        return Matrix{Float64}(I, 3, 3)
     else
         error("Invalid flag value. Must be an integer between 1 and 6.")
     end

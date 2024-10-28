@@ -7,7 +7,7 @@ module EMA
 using ..Model
 using LinearAlgebra
 using StaticArrays
-
+using Base.Threads
 export EMACu_phi,EMACu_psi,EMACu_Phi,EMACu_phi_gradient,EMACu_psi_gradient,EMACu_Phi_gradient,EMACu_rhoi,embedding_energyCu,embedding_forceCuij,embedding_forceCui,EMAAl2_Phi,EMAAl2_phi,EMAAl2_psi,EMAAl2_phi_gradient,EMAAl2_psi_gradient,EMAAl2_Phi_gradient,EMAAl2_rhoi,embedding_energyAl2,embedding_forceAl2ij,embedding_forceAl2i,EMAAl1_Phi,EMAAl1_phi,EMAAl1_psi,EMAAl1_phi_gradient,EMAAl1_psi_gradient,EMAAl1_Phi_gradient,EMAAl1_rhoi,embedding_energyAl1,embedding_forceAl1ij,embedding_forceAl1i
 # EMACu_phi(r) 函数
 function EMACu_phi(r)
@@ -403,7 +403,6 @@ function EMAAl2_Phi_gradient(rho::Float64)::Float64
 end
 
 
-
 function EMAAl2_rhoi(cell::UnitCell,i;ct::Float64=6.5)
     natom=length(cell.atoms)
     rhoi=0.0
@@ -420,6 +419,22 @@ function EMAAl2_rhoi(cell::UnitCell,i;ct::Float64=6.5)
     return rhoi
 end
 
+# function EMAAl2_rhoi(cell::UnitCell, i; ct::Float64=6.5)
+#     natom = length(cell.atoms)
+#     rhoi = Atomic{Float64}(0.0)  # 使用原子类型保证线程安全
+
+#     Threads.@threads for j in 1:natom
+#         if j != i
+#             rij = getrij(cell, i, j)
+#             nrij = norm(rij)
+#             if nrij < ct
+#                 # 使用原子操作进行累加
+#                 atomic_add!(rhoi, EMAAl2_psi(nrij))
+#             end
+#         end
+#     end
+#     return Float64(rhoi[]) 
+# end
 
 function embedding_energyAl2(cell::UnitCell)
     natom=length(cell.atoms)
@@ -429,6 +444,40 @@ function embedding_energyAl2(cell::UnitCell)
         E+=EMAAl2_Phi(rhoi)
     end
     return E
+end
+
+#这里多线程就会变慢不知道为什么
+# function embedding_energyAl2(cell::UnitCell)
+#     natom = length(cell.atoms)
+#     # 如果只有一个线程，使用普通的累加
+#     if Threads.nthreads() == 1
+#         E = 0.0
+#         for i in 1:natom
+#             rhoi = EMAAl2_rhoi(cell, i)
+#             E += EMAAl2_Phi(rhoi)
+#         end
+#         return E
+#     else
+#         # 如果线程数大于1，使用原子累加
+#         E = Atomic{Float64}(0.0)
+#         Threads.@threads for i in 1:natom
+#             rhoi = EMAAl2_rhoi(cell, i)
+#             atomic_add!(E, EMAAl2_Phi(rhoi))  # 使用原子累加
+#         end
+#         return Float64(E[])  # 返回普通浮点数
+#     end
+# end
+
+
+function embedding_forceAl2ij(cell::UnitCell,i::Int,j::Int;ct::Float64=6.0)::SVector{3,Float64}
+    rij=getrij(cell,i,j)
+    Fij=SVector{3,Float64}(0.0, 0.0, 0.0)
+    if norm(rij)<ct
+        rhoi=EMAAl2_rhoi(cell,i)
+        rhoj=EMAAl2_rhoi(cell,j)
+        Fij=-(EMAAl2_Phi_gradient(rhoi)+EMAAl2_Phi_gradient(rhoj))*EMAAl2_psi_gradient(rij)
+    end
+    return Fij
 end
 
 
@@ -443,16 +492,15 @@ function embedding_forceAl2ij(cell::UnitCell,i::Int,j::Int;ct::Float64=6.0)::SVe
     return Fij
 end
 
-function embedding_forceAl2i(cell::UnitCell,i::Int)::SVector{3,Float64}
-    natom=length(cell.atoms)
-
-    Fi=SVector{3,Float64}(0.0, 0.0, 0.0)
+function embedding_forceAl2i(cell::UnitCell, i::Int)::SVector{3, Float64}
+    natom = length(cell.atoms)
+    Fi = SVector{3, Float64}(0.0, 0.0, 0.0)
     for j in 1:natom
-        if j!=i
-            Fi+=embedding_forceAl2ij(cell,i,j)
+        if j != i
+            Fi += embedding_forceAl2ij(cell, i, j)
         end
     end
-    return Fi 
+    return Fi
 end
 
 
@@ -605,12 +653,12 @@ end
 function EMAAl1_rhoi(cell::UnitCell,i;ct::Float64=6.5)
     natom=length(cell.atoms)
     rhoi=0.0
-    for j in 1:natom
-        if j!=i
-            rij=getrij(cell,i,j)
-            nrij=norm(rij)
-            if nrij<ct
-                # println("$i,$j,$rij,$(EMACu_psi(nrij))")
+for j in 1:natom
+        if j != i
+            rij = getrij(cell, i, j)
+            nrij = norm(rij)
+            if nrij < ct
+            
                 rhoi+=EMAAl1_psi(nrij)
             end
         end
