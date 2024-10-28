@@ -3,7 +3,8 @@ using GLMakie
 using ..Model
 using LaTeXStrings
 using Printf
-export visualize_unitcell_atoms,visualize_unitcell_atoms0,matrix_to_latex
+using JSON
+export visualize_unitcell_atoms,visualize_unitcell_atoms0,matrix_to_latex,read_json,read_config
 
 
 # 定义一个颜色映射函数
@@ -75,12 +76,12 @@ end
 """
 生成latex矩阵字符串
 """
-function matrix_to_latex(matrix)
+function matrix_to_latex(matrix::Matrix{T};n::Int=3) where T
     rows, cols = size(matrix)
     latex_str = "\\left[\\begin{matrix}"
     for i in 1:rows
         for j in 1:cols
-            latex_str *= @sprintf("%.2f", matrix[i, j])
+            latex_str *= @sprintf("%.*f", n, matrix[i, j])
             if j < cols
                 latex_str *= " & "
             end
@@ -93,6 +94,26 @@ function matrix_to_latex(matrix)
     return L"%$latex_str"  # 生成LaTeXString格式
 end
 
+function read_json(filename)
+    results = []
+    open(filename, "r") do file
+        for line in eachline(file)
+            data = JSON.parse(line)
+            push!(results, data)
+        end
+    end
+    return results
+end
+
+function read_config(path, keyword)
+    lines= readlines(path)
+    for line in lines
+        if occursin(keyword, line)
+            return strip(replace(line, "$keyword" => ""))
+        end
+    end
+    return nothing
+end
 
 
 end

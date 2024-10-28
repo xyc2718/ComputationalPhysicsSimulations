@@ -9,7 +9,7 @@ using StaticArrays
 using LinearAlgebra
 using Base.Threads
 using IterTools
-export Atom, UnitCell, copycell,  Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,filtercell,cell_forceij!,cell_forcei!,force_tensor!,cell_temp,Ngradient0,getrij,is_diagonal_matrix,Embedding,dUdhij
+export Atom, UnitCell, copycell,  Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,filtercell,cell_forceij!,cell_forcei!,force_tensor!,cell_temp,Ngradient0,getrij,is_diagonal_matrix,Embedding,dUdhij,randcell!,Force_Tensor,getrij0,update_rmat!,update_rmati!,update_fmat!,cell_forcei0
     
 global const kb=8.617332385e-5 #eV/K
 
@@ -59,19 +59,23 @@ mutable struct UnitCell
     atoms::Vector{Atom}
     copy::Vector{Int}
     Volume::Float64
+    rmat::Matrix{SVector{3,Float64}}
+    ifrmat::Bool
+    fmat::Vector{SVector{3,Float64}}
+    iffmat::Bool
     function UnitCell(lattice_vectors::Matrix{Float64}, atoms::Vector{Atom}, copy::Vector{Int})
         # println(copy[1]*copy[2]*copy[3])
         # println(det(lattice_vectors))
         v=copy[1]*copy[2]*copy[3]*det(lattice_vectors)*8
-        new(lattice_vectors, atoms,copy,v)
+        new(lattice_vectors, atoms,copy,v,Matrix{SVector{3,Float64}}(undef,length(atoms),length(atoms)),false,Vector{SVector{3,Float64}}(undef,length(atoms)),false)
     end
     function UnitCell(lattice_vectors::Matrix{Float64}, atoms::Vector{Atom})
         v=det(lattice_vectors)*8
-        new(lattice_vectors, atoms, Vector([1,1,1]),v)
+        new(lattice_vectors, atoms, Vector([1,1,1]),v,Matrix{SVector{3,Float64}}(undef,length(atoms),length(atoms)),false,Vector{SVector{3,Float64}}(undef,length(atoms)),false)
     end
     function UnitCell(lattice_vectors::Adjoint{Float64, Matrix{Float64}}, atoms::Vector{Atom})
         v=det(lattice_vectors)*8
-        new(lattice_vectors, atoms, Vector([1,1,1]),v)
+        new(lattice_vectors, atoms, Vector([1,1,1]),v,Matrix{SVector{3,Float64}}(undef,length(atoms),length(atoms)),false,Vector{SVector{3,Float64}}(undef,length(atoms)),false)
     end
 end
 
@@ -152,7 +156,11 @@ j::Int
 
 return rij
 """
-function getrij(cell::UnitCell, i::Int, j::Int; diagonal_mat::Bool=true) :: SVector{3, Float64}
+function getrij0(cell::UnitCell, i::Int, j::Int; diagonal_mat::Bool=true) :: SVector{3, Float64}
+    if i==j
+        return SVector{3}(0.0, 0.0, 0.0)
+    end
+
     cp = SVector{3}(cell.copy)  # 静态数组
     ltv = SMatrix{3,3}(cell.lattice_vectors)  # 静态矩阵
     rij = SVector{3}(cell.atoms[j].position - cell.atoms[i].position)  # 3D 向量
@@ -198,6 +206,44 @@ function getrij(cell::UnitCell, i::Int, j::Int; diagonal_mat::Bool=true) :: SVec
         return ltv * min_rij
     end
 end
+
+function update_rmati!(cell::UnitCell,i::Int)
+    for j in 1:length(cell.atoms)
+        rij=getrij0(cell,i,j)
+        cell.rmat[i,j] = rij
+        cell.rmat[j,i] = -rij
+    end
+end
+
+function update_rmat!(cell::UnitCell)
+    cell.ifrmat = true
+    atom=length(cell.atoms)
+    for i in 1:atom
+        for j in i:atom
+            rij=getrij0(cell,i,j)
+            cell.rmat[i,j] = rij
+            cell.rmat[j,i] = -rij
+        end
+    end
+end
+
+
+
+
+
+function getrij(cell::UnitCell, i::Int, j::Int) :: SVector{3, Float64}
+    if  cell.ifrmat
+        return cell.rmat[i,j]
+    else
+        return getrij0(cell,i,j)
+    end
+end
+
+
+
+
+
+
 """
 判断是否为对角阵
 """
@@ -384,6 +430,16 @@ struct Interaction{F1, F2, F3, F4}
 end
 
 
+
+function update_fmat!(cell::UnitCell,interaction::Interaction)
+    cell.iffmat = true
+    atom=length(cell.atoms)
+    for i in 1:atom
+            fi=cell_forcei0(cell,interaction,i)
+            cell.fmat[i] =fi
+    end
+end
+
 """
 计算cell温度,减去了质心动能
 :param cell: 晶胞
@@ -423,7 +479,6 @@ function cell_energyij(cell::UnitCell, interaction::Interaction, i::Int, j::Int;
 end
 
 
-
 """
 计算晶胞的总能量,采用邻近最小像,assert:cutoff<box/2
 :param cell: 晶胞
@@ -456,6 +511,9 @@ end
 
 
 
+
+
+
 """
 计算晶胞中i受到原子j的相互作用力,采用邻近最小像,assert:cutoff<box/2
 :param cell: 晶胞
@@ -463,7 +521,7 @@ end
 :param i,j: 原子序号
 这里rij其实应该是rji,一开始搞错了,故最后加负号
 """
-function cell_forceij(cell::UnitCell, interaction::Interaction, i::Int, j::Int;iffilter::Bool=false)::SVector{3, Float64}
+function cell_forceij(cell::UnitCell, interaction::Interaction, i::Int, j::Int)::SVector{3, Float64}
     cutoff = interaction.cutoff
     rij=getrij(cell,i,j)
     nr=norm(rij)
@@ -484,11 +542,11 @@ end
 :param interaction: 相互作用
 :param i: 原子序号
 """
-function cell_forcei(cell::UnitCell,interaction::Interaction,i::Int;iffilter::Bool=false)::SVector{3,Float64}
+function cell_forcei0(cell::UnitCell,interaction::Interaction,i::Int)::SVector{3,Float64}
     forcei=SVector{3}(0.0, 0.0, 0.0)
         for j in 1:length(cell.atoms)
             if i!=j
-                forcei+=cell_forceij(cell,interaction,i,j,iffilter=iffilter)
+                forcei+=cell_forceij(cell,interaction,i,j)
             end
         end
     if interaction.embedding.ifembedding
@@ -497,6 +555,15 @@ function cell_forcei(cell::UnitCell,interaction::Interaction,i::Int;iffilter::Bo
     end
     return forcei
 end
+
+function cell_forcei(cell::UnitCell,interaction::Interaction,i::Int)\
+    if cell.iffmat
+        return cell.fmat[i]
+    else
+        return cell_forcei0(cell,interaction,i)
+    end
+end
+
 
 function  Ngradient0(cell::UnitCell,i::Int,f::Function,para::Vector;dr::Vector{Float64}=[0.001,0.001,0.001])
     df=zeros(3)
@@ -507,8 +574,12 @@ function  Ngradient0(cell::UnitCell,i::Int,f::Function,para::Vector;dr::Vector{F
         dri=invlt*drm[j,:]
         dcell=deepcopy(cell)
         dcell.atoms[i].position.+=dri
+        update_rmati!(dcell,i)
+        update_fmat!(dcell,interaction)
         f1=f(dcell,para...)
         dcell.atoms[i].position.-=2*dri
+        update_rmati!(dcell,i)
+        update_fmat!(dcell,interaction)
         f2=f(dcell,para...)
         df[j]=(f1-f2)/2/dr[j]
     end
@@ -516,15 +587,6 @@ function  Ngradient0(cell::UnitCell,i::Int,f::Function,para::Vector;dr::Vector{F
 end
 
 
-# function cell_forcei(cell::UnitCell,interaction::Interaction,i::Int;fractor::Fractor,iffilter::Bool=false)
-#     forcei=zeros(3)
-#     for j in 1:length(cell.atoms)
-#         if i!=j
-#             forcei+=cell_forceij(cell,interaction,i,j,iffilter=iffilter)+fractor.fracforce(cell,i)
-#         end
-#     end
-# return forcei
-# end
 
 
 
@@ -548,12 +610,27 @@ function force_tensor(cell::UnitCell,interaction::Interaction)
 end
 
 
+function randcell!(cell::UnitCell,k::Float64=0.1)
+    for atom in cell.atoms
+        atom.position+=k*randn(3)
+    end
+    update_rmat!(cell)
+    update_fmat!(cell,interaction)
+end
 
+function Force_Tensor(cell::UnitCell,interaction::Interaction;dr::BigFloat=BigFloat("1e-8"))
+    ft=force_tensor(cell,interaction)
+    dUdh=dUdhij(cell,interaction,BigFloat("1e-8"))
+    ltv=cell.lattice_vectors
+    V=cell.Volume
+    ft0=ft-(dUdh*transpose(ltv))./V
+    return ft0
+end
 
 """
 差分计算dU/dhij
 """
-function dUdhij(fcell::UnitCell,interaction::Interaction,dr::BigFloat=BigFloat("1e-5"))
+function dUdhij(fcell::UnitCell,interaction::Interaction,dr::BigFloat=BigFloat("1e-8"))
     ltv=fcell.lattice_vectors
     dltv=dr*maximum(ltv)
     # println(dltv)
@@ -571,6 +648,9 @@ function dUdhij(fcell::UnitCell,interaction::Interaction,dr::BigFloat=BigFloat("
                     end
             end
             dcell.lattice_vectors=ltv2
+
+            update_rmat!(dcell)
+            update_fmat!(dcell,interaction)
             energy1=cell_energy(dcell,interaction)
 
             dcell=deepcopy(fcell)
@@ -584,6 +664,9 @@ function dUdhij(fcell::UnitCell,interaction::Interaction,dr::BigFloat=BigFloat("
                     end
             end
             dcell.lattice_vectors=ltv2
+
+            update_rmat!(dcell)
+            update_fmat!(dcell,interaction)
             energy2=cell_energy(dcell,interaction)
             # println("i=$i,j=$j,dE=$(energy1-energy2)")
             re[i,j]=(energy1-energy2)/dltv/2

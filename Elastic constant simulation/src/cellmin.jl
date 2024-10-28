@@ -91,20 +91,18 @@ function BMfit(vl::Vector{Float64},el::Vector{Float64},cpcell::UnitCell,p0::Vect
         invlt=inv(ltv)
         m=cell.atoms[1].mass
         cp=cell.copy
-        fl=fill(zeros(3),length(cell.atoms))
-         for i in eachindex(cell.atoms)
-            fi=cell_forcei(cell,interaction,i)
-            fl[i]=deepcopy(fi)
-         end
         #  println(fl)
         #  println(cell_forcei(cell,interaction,32))
          for i in eachindex(cell.atoms)
-          cell.atoms[i].position+=ap*invlt*fl[i]
+            fi=cell_forcei(cell,interaction,i)
+            cell.atoms[i].position+=ap*invlt*fi
             # println(ap*invlt*fl[i])
             for k in 1:3
              cell.atoms[i].position[k]=mod(cell.atoms[i].position[k]+cp[k],2*cp[k])-cp[k]
              end
-         end 
+         end
+         update_rmat!(cell) 
+         update_fmat!(cell,interaction)
     end
 
 
@@ -117,6 +115,8 @@ function BMfit(vl::Vector{Float64},el::Vector{Float64},cpcell::UnitCell,p0::Vect
                 0.0 lt 0.0; #a2
                 0.0 0.0 lt] #a3
             ))')
+            update_rmat!(cell)
+            # update_fmat!(cell,interaction)
             Ei=cell_energy(cell,interaction)
             push!(El,Ei)
         end
@@ -127,6 +127,8 @@ function BMfit(vl::Vector{Float64},el::Vector{Float64},cpcell::UnitCell,p0::Vect
             0.0 lt 0.0; #a2
             0.0 0.0 lt] #a3
         ))')
+        update_rmat!(cell)
+        update_fmat!(cell,interaction)
         return cl,El
     end
 
@@ -152,6 +154,7 @@ function BMfit(vl::Vector{Float64},el::Vector{Float64},cpcell::UnitCell,p0::Vect
             0.0 lt 0.0; #a2
             0.0 0.0 lt] #a3
         ))')
+        gradientDescent!(cell,interaction,maxiter=maxiter,tol=tol)
         return cl,El
     end
 end

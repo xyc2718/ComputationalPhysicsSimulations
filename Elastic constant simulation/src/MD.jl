@@ -51,6 +51,7 @@ function dUdV_default(inicell::UnitCell,interaction::Interaction,dV::BigFloat=Bi
         end
         # dcell.atoms[i].position=(ltv1)*ltv*dcell.atoms[i].position
     end
+    update_rmat!(dcell)
     energy1=cell_energy(dcell,interaction)
     # fig=visualize_unitcell_atoms0(dcell)
     # display(fig)
@@ -64,6 +65,7 @@ function dUdV_default(inicell::UnitCell,interaction::Interaction,dV::BigFloat=Bi
         end
         # dcell.atoms[i].position=(ltv2)*ltv*dcell.atoms[i].position
     end
+    update_rmat!(dcell)
     energy2=cell_energy(dcell,interaction)
     # println("E1=$energy1,E2=$energy2")
 
@@ -102,8 +104,34 @@ function pressure_int(cell::UnitCell,interaction::Interaction,dUdV::T=dUdV_defau
     # println("Pint1=$Pint1,Pint2=$Pint2")
     Pint=Pint1+Pint2
     return Pint/v/3-dUdV(cell,interaction)
+end
 
-    
+"""
+等效压强Pint
+:param cell: UnitCell
+:param interaction: Interaction
+:param dUdV: function for dUdV(UnitCell,interaction)
+return Pint
+"""
+function pressure_int_rfl(cell::UnitCell,interaction::Interaction,dUdV::T=dUdV_default) where T
+    v=cell.Volume
+    Pint1=0.0
+    Pint2=0.0
+    lt=cell.lattice_vectors
+    natom=length(cell.atoms)
+    fl = Vector{SVector{3, Float64}}(undef, natom)
+    for i in 1:length(cell.atoms)
+        atom=cell.atoms[i]
+        pm=atom.momentum
+        ri=lt*atom.position
+        fi=cell_forcei(cell,interaction,i)
+        fl[i]=fi
+        Pint1+=dot(pm,pm)/atom.mass
+        Pint2+=dot(ri,fi)
+    end
+    # println("Pint1=$Pint1,Pint2=$Pint2")
+    Pint=Pint1+Pint2
+    return (Pint/v/3-dUdV(cell,interaction),fl)
 end
 
 """
@@ -232,15 +260,15 @@ function RK3_step!(z::Vector{Float64},dt::Float64,cell::UnitCell, interaction::I
     dim=Int(length(z)/2)
     k1=Hz(z,cell,interaction,thermostat)
     zr=z+(dt/2).*k1
-    update_cell_NVT!(zr,cell)
+    update_cell_NVT!(zr,cell,interaction)
     updatezr!(zr,cell)
     k2=Hz(zr,cell,interaction,thermostat)
     zr.=z-dt.*k1+(2*dt).*k2
-    update_cell_NVT!(zr,cell)
+    update_cell_NVT!(zr,cell,interaction)
     updatezr!(zr,cell)
     k3=Hz(zr,cell,interaction,thermostat)
     z.=z+(dt/6).*(k1.+4*k2.+k3)
-    update_cell_NVT!(z,cell)
+    update_cell_NVT!(z,cell,interaction)
     updatezr!(z,cell)
     thermostat.Pt=z[2*dim]
     thermostat.Rt=z[dim]
@@ -263,15 +291,15 @@ return z
 function RK3_step!(z::Vector{Float64},dt::Float64,cell::UnitCell, interaction::Interaction, thermostat::Thermostat, barostat::Barostat)
     k1=Hz(z,cell,interaction,thermostat,barostat)
     zr=z+(dt/2).*k1
-    update_cell!(zr,cell)
+    update_cell!(zr,cell,interaction)
     updatezr!(zr,cell)
     k2=Hz(zr,cell,interaction,thermostat,barostat)
     zr.=z-dt.*k1+(2*dt).*k2
-    update_cell!(zr,cell)
+    update_cell!(zr,cell,interaction)
     updatezr!(zr,cell)
     k3=Hz(zr,cell,interaction,thermostat,barostat)
     z.=z+(dt/6).*(k1.+4*k2.+k3)
-    update_cell!(z,cell)
+    update_cell!(z,cell,interaction)
     updatezr!(z,cell)
     dim=Int(length(z)/2)
     thermostat.Pt=z[2*dim-1]
@@ -317,7 +345,7 @@ end
 :param z: z=[r1...rn,Rt,Rv,p1,...pn,Pt,Pv]
 :param cell: UnitCell
 """
-function update_cell!(z::Vector{Float64},cell::UnitCell)
+function update_cell!(z::Vector{Float64},cell::UnitCell,interaction::Interaction)
     natom=Int((length(z)-4)/6)
     rl=z[1:3*natom]
     pl=z[3*natom+3:6*natom+2]
@@ -330,15 +358,18 @@ function update_cell!(z::Vector{Float64},cell::UnitCell)
     ltm=cell.lattice_vectors*ap  
     cell.lattice_vectors=ltm
     cell.Volume=v
+    invltv=inv(ltm)
     a,b,c=cell.copy
     for i in 1:natom
-        ri=inv(cell.lattice_vectors)*rl[3*i-2:3*i]
+        ri=invltv*rl[3*i-2:3*i]
         ri[1]=mod(ri[1]+a,2*a)-a
         ri[2]=mod(ri[2]+b,2*b)-b
         ri[3]=mod(ri[3]+c,2*c)-c
         cell.atoms[i].position=ri
         cell.atoms[i].momentum=pl[3*i-2:3*i]
     end
+    update_rmat!(cell)
+    update_fmat!(cell,interaction)
 end
 
 
@@ -349,19 +380,22 @@ end
 :param z: z=[r1...rn,Rt,Rv,p1,...pn,Pt,Pv]
 :param cell: UnitCell
 """
-function update_cell_NVT!(z::Vector{Float64},cell::UnitCell)
+function update_cell_NVT!(z::Vector{Float64},cell::UnitCell,interaction::Interaction)
     natom=Int((length(z)-2)/6)
     rl=z[1:3*natom]
     pl=z[3*natom+2:6*natom+1]
     a,b,c=cell.copy
+    invltv=inv(cell.lattice_vectors)
     for i in 1:natom
-        ri=inv(cell.lattice_vectors)*rl[3*i-2:3*i]
+        ri=invltv*rl[3*i-2:3*i]
         ri[1]=mod(ri[1]+a,2*a)-a
         ri[2]=mod(ri[2]+b,2*b)-b
         ri[3]=mod(ri[3]+c,2*c)-c
         cell.atoms[i].position=ri
         cell.atoms[i].momentum=pl[3*i-2:3*i]
     end
+    update_rmat!(cell)
+    update_fmat!(cell,interaction)
 end
 
 
@@ -373,6 +407,8 @@ end
 function update_celli!(rl,pl,i::Int,cell::UnitCell)
     cell.atoms[i].position=inv(cell.lattice_vectors)*rl
     cell.atoms[i].momentum=pl
+    # update_rmati!(cell,i)
+    # update_fmat!(cell,interaction)
 end
 
 
@@ -453,6 +489,7 @@ function minEenergyCell(T::Float64,atoms::Vector{Atom},interaction::Interaction,
         cell=UnitCell(lattice_vectors,atoms)
         cpcell=copycell(cell,cp...)
         fcell=filtercell(cpcell)
+        update_rmat!(fcell)
         Ei=cell_energy(fcell,interaction)
         push!(El,Ei)
     end
@@ -468,6 +505,8 @@ function minEenergyCell(T::Float64,atoms::Vector{Atom},interaction::Interaction,
     cpcell=copycell(cell,cp...)
     fcell=filtercell(cpcell)
     initT!(T,fcell)
+    update_rmat!(fcell)
+    update_fmat!(fcell,interaction)
     return fcell
 
 end
@@ -485,8 +524,10 @@ function initcell(P::Float64,T::Float64,atoms::Vector{Atom},interaction::Interac
         cpcell=copycell(cell,cp...)
         fcell=filtercell(cpcell)
         initT!(T,fcell)
+        update_rmat!(fcell)
         pa=pressure_int(fcell,interaction)-P
         if abs(pa)<1e-2
+            update_rmat!(fcell)
             return fcell
         end
     end
@@ -628,15 +669,18 @@ function Andersen_Hoover_NPT_step!(cell::UnitCell,interaction::Interaction,therm
     for i in 1:natom
         cell.atoms[i].position.=cell.atoms[i].position*AA2+(BB)*(invltv*cell.atoms[i].momentum/cell.atoms[i].mass)
     end
-    
     xlogv=xlogv+vlogv*dt
     cell.Volume=exp(3*xlogv)
     cell.lattice_vectors.=cell.lattice_vectors*(cell.Volume/initial_volume)^(1/3)
+
+    update_rmat!(cell)
+    update_fmat!(cell,interaction)
+
     barostat.V=cell.Volume
     barostat.Pv=vlogv
     for i in 1:natom
-    fi=cell_forcei(cell,interaction,i)
-    cell.atoms[i].momentum.+=dt2*fi
+        fi=cell_forcei(cell,interaction,i)
+        cell.atoms[i].momentum.+=dt2*fi
     end
     Nhcpisoint!(cell,interaction,thermostatchain,barostat,dt,nresn=nresn)
     cp=cell.copy
@@ -645,6 +689,9 @@ function Andersen_Hoover_NPT_step!(cell::UnitCell,interaction::Interaction,therm
             cell.atoms[i].position[j]=mod(cell.atoms[i].position[j]+cp[j],2*cp[j])-cp[j]
         end
     end
+    update_rmat!(cell)
+    update_fmat!(cell,interaction)
+    
 end
 
 """
@@ -661,7 +708,8 @@ Langvin Anderson方式控制NPT
 Ref:Bereau, T. (2015). Multi-timestep Integrator for the Modified Andersen Barostat. Physics Procedia, 68, 7–15. https://doi.org/10.1016/j.phpro.2015.07.101
 """
 function LA_step!(fcell::UnitCell,interaction::Interaction,dt::Float64,T::Float64,barostat::Barostat,gamma0::Float64,gammav::Float64,n::Int=4)
-
+        fcell.ifrmat=false
+        fcell,iffmat=false
         kb=8.617332385e-5 #eV/K
         dist=Normal(0,1)        
         Pe=barostat.Pe
