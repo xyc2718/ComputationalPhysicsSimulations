@@ -9,7 +9,7 @@ using StaticArrays
 using LinearAlgebra
 using Base.Threads
 using IterTools
-export Atom, UnitCell, copycell,  Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,filtercell,cell_forceij!,cell_forcei!,force_tensor!,cell_temp,Ngradient0,getrij,is_diagonal_matrix,Embedding,dUdhij,randcell!,Force_Tensor,getrij0,update_rmat!,update_rmati!,update_fmat!,cell_forcei0,set_lattice_vector!,apply_PBC!
+export Atom, UnitCell, copycell,  Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,filtercell,cell_forceij!,cell_forcei!,force_tensor!,cell_temp,Ngradient0,getrij,is_diagonal_matrix,Embedding,dUdhij,randcell!,Force_Tensor,getrij0,update_rmat!,update_rmati!,update_fmat!,cell_forcei0,set_lattice_vector!,apply_PBC!,SW
     
 global const kb=8.617332385e-5 #eV/K
 
@@ -318,6 +318,29 @@ end
 
 
 
+function  Default_SW_energy(cell::UnitCell)
+    return 0.0
+end
+
+function Default_SW_force(cell::UnitCell,i::Int)
+    return SVector{3,Float64}(0.0,0.0,0.0)
+end
+
+"""
+SW势能项
+"""
+struct SW{F1,F2}
+    SW_energy::F1
+    SW_force::F2
+    ifSW::Bool
+    function SW() 
+        new{typeof(Default_SW_energy),typeof(Default_SW_force)}(Default_SW_energy,Default_SW_force, false)
+    end
+    function SW(SW_energy::E1, SW_force::E2) where {E1, E2}
+        new{E1,E2}(SW_energy, SW_force, true)
+    end
+end
+
 
 """
 相互作用类型,通过二次函数添加截断于cutoff-cutrg - cutoff
@@ -337,7 +360,7 @@ struct Interaction{F1, F2, F3, F4}
     cutoff::Float64  # 截断距离
     cutrg::Float64   # 截断范围
     embedding::Embedding
-
+    sw::SW
 
     # 定义构造函数
     function Interaction(energy::F1, force::F2, cutoff::Float64, cutrg::Float64) where {F1, F2}
@@ -379,7 +402,7 @@ struct Interaction{F1, F2, F3, F4}
         cutforce(r::Float64) = (cutforce(SVector{3}([r, 0, 0])))[1]
 
         # 返回新的 Interaction 实例
-        new{F1, F2, typeof(cutenergy), typeof(cutforce)}(energy, force, cutenergy, cutforce, cutoff, cutrg,Embedding())
+        new{F1, F2, typeof(cutenergy), typeof(cutforce)}(energy, force, cutenergy, cutforce, cutoff, cutrg,Embedding(),SW())
     end
 
 
@@ -425,7 +448,46 @@ struct Interaction{F1, F2, F3, F4}
         cutforce(r::Float64) = (cutforce(SVector{3}([r, 0, 0])))[1]
 
         # 返回新的 Interaction 实例
-        new{F1, F2, typeof(cutenergy), typeof(cutforce)}(energy, force, cutenergy, cutforce, cutoff, cutrg,embedding)
+        new{F1, F2, typeof(cutenergy), typeof(cutforce)}(energy, force, cutenergy, cutforce, cutoff, cutrg,embedding,SW())
+    end
+
+    function Interaction(energy::F1, force::F2, cutoff::Float64, cutrg::Float64,sw::SW) where {F1, F2}
+        # 初始化截断势能和力的参数
+        Er2 = energy(cutoff - cutrg)
+        dU2 = -(force(SVector{3}(cutoff - cutrg,0,0)))[1]
+        bb=Vector{Float64}([0.0,0.0,dU2,Er2])
+        x1=cutoff
+        x2=cutoff-cutrg
+        A=[x1^3 x1^2 x1 1;3*x1^2 2*x1 1 0;3*x2^2 2*x2 1 0;x2^3 x2^2 x2 1]
+        a,b,c,d=inv(A)*bb
+        # 定义截断势能函数
+        function cutenergy(r::Float64)
+            nr = abs(r)
+            if nr > cutoff
+                return 0.0
+            elseif nr < cutoff - cutrg
+                return energy(r)
+            else
+                return a*nr^3+b*nr^2+c*nr+d
+            end
+        end
+        # 定义截断力函数，接收向量输入
+        function cutforce(r::SVector{3, Float64})
+            nr = norm(r)
+            if nr > cutoff
+                return Vector(zeros(3))
+            elseif nr < cutoff - cutrg
+                return force(r)
+            else
+                return -((3 * a * nr^2 +2*b*nr+c) / nr) * r
+            end
+        end
+
+        # 定义截断力函数的重载，使其可以接收 Float64 类型的输入
+        cutforce(r::Float64) = (cutforce(SVector{3}([r, 0, 0])))[1]
+
+        # 返回新的 Interaction 实例
+        new{F1, F2, typeof(cutenergy), typeof(cutforce)}(energy, force, cutenergy, cutforce, cutoff, cutrg,Embedding(),sw)
     end
 end
 
@@ -456,7 +518,7 @@ function cell_temp(cell::UnitCell)
         p=atom.momentum
         Ek+=sum(p.^2)/(atom.mass)/2
     end
-    return 2*Ek/(3*kb*(length(cell.atoms)-1))    
+    return 2*Ek/(3*kb*(length(cell.atoms)))    
 end
 
 """
@@ -502,6 +564,7 @@ function cell_energy(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=f
     # end
     energy=0.0
     energyeb=0.0
+    energysw=0.0
     for i in 1:length(cell.atoms)
         for j in i+1:length(cell.atoms)
                 energy+=cell_energyij(cell,interaction,i,j,ifnormalize=ifnormalize)
@@ -511,7 +574,11 @@ function cell_energy(cell::UnitCell,interaction::Interaction;ifnormalize::Bool=f
     if interaction.embedding.ifembedding
         energyeb=interaction.embedding.embedding_energy(cell)
     end
-    return energy+energyeb
+    if interaction.sw.ifSW
+        energysw=interaction.sw.SW_energy(cell)
+    end
+
+    return energy+energyeb+energysw
 end
 
 
@@ -558,6 +625,10 @@ function cell_forcei0(cell::UnitCell,interaction::Interaction,i::Int)::SVector{3
         # forcei.-=Ngradient0(cell,i,interaction.embedding.embedding_energy,[])
         forcei+=interaction.embedding.embedding_force(cell,i)
     end
+    if interaction.sw.ifSW
+        # forcei.-=Ngradient0(cell,i,interaction.sw.SW_energy,[])
+        forcei+=interaction.sw.SW_force(cell,i)
+    end
     return forcei
 end
 
@@ -580,11 +651,10 @@ function  Ngradient0(cell::UnitCell,i::Int,f::Function,para::Vector;dr::Vector{F
         dcell=deepcopy(cell)
         dcell.atoms[i].position.+=dri
         update_rmati!(dcell,i)
-        update_fmat!(dcell,interaction)
+
         f1=f(dcell,para...)
         dcell.atoms[i].position.-=2*dri
         update_rmati!(dcell,i)
-        update_fmat!(dcell,interaction)
         f2=f(dcell,para...)
         df[j]=(f1-f2)/2/dr[j]
     end
@@ -615,7 +685,7 @@ function force_tensor(cell::UnitCell,interaction::Interaction)
 end
 
 
-function randcell!(cell::UnitCell,k::Float64=0.1)
+function randcell!(cell::UnitCell,interaction::Interaction;k::Float64=0.1)
     for atom in cell.atoms
         atom.position+=k*randn(3)
     end
@@ -669,7 +739,6 @@ function dUdhij(fcell::UnitCell,interaction::Interaction,dr::BigFloat=BigFloat("
                     end
             end
             dcell.lattice_vectors=ltv2
-
             update_rmat!(dcell)
             update_fmat!(dcell,interaction)
             energy2=cell_energy(dcell,interaction)
@@ -682,7 +751,7 @@ function dUdhij(fcell::UnitCell,interaction::Interaction,dr::BigFloat=BigFloat("
 end
 
 
-function apply_PBC!(cell::UnitCell,interaction::Interaction)
+function apply_PBC!(cell::UnitCell)
     a,b,c=cell.copy
     for i in eachindex(cell.atoms)
         for k in 1:3
@@ -694,10 +763,17 @@ function apply_PBC!(cell::UnitCell,interaction::Interaction)
         end
     
     end
-    update_rmat!(cell)
-    update_fmat!(cell,interaction)
 
 end
+
+function apply_PBC!(cell::UnitCell,interaction::Interaction)
+    apply_PBC!(cell)
+    update_rmat!(cell)
+    update_fmat!(cell,interaction)
+end
+
+
+
 
 function set_lattice_vector!(cell::UnitCell,lt::Matrix{Float64},interaction::Interaction)
     lt0=cell.lattice_vectors
@@ -707,6 +783,7 @@ function set_lattice_vector!(cell::UnitCell,lt::Matrix{Float64},interaction::Int
         cell.atoms[i].position=invlt*lt0*cell.atoms[i].position
     end
     apply_PBC!(cell,interaction)
+    cell.Volume=det(lt)*cell.copy[1]*cell.copy[2]*cell.copy[3]*8
 end
 
 

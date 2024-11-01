@@ -29,8 +29,13 @@ end
     
 function deform_cell!(fcell::UnitCell,deform_mat::Matrix{Float64},interaction::Interaction)
     fcell.lattice_vectors*=deform_mat
+    apply_PBC!(fcell,interaction)
     update_rmat!(fcell)
     update_fmat!(fcell,interaction)
+end
+
+function deform_cell!(fcell::UnitCell,deform_mat::Matrix{Float64})
+    fcell.lattice_vectors*=deform_mat
 end
 
 function FT2sigma(force_tensor::Matrix{T}) where T

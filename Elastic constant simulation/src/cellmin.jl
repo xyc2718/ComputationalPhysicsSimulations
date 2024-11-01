@@ -8,6 +8,7 @@ using LinearAlgebra
 using GLMakie 
 using LsqFit
 using ..Model
+
     
 export birch_murnaghan,BMfit,gradientStep!,minimizeEnergy!,gradientDescent!
 
@@ -127,6 +128,8 @@ function BMfit(vl::Vector{Float64},el::Vector{Float64},cpcell::UnitCell,p0::Vect
             0.0 lt 0.0; #a2
             0.0 0.0 lt] #a3
         ))')
+        cp=cell.copy
+        cell.Volume=det(cell.lattice_vectors)*8*cp[1]*cp[2]*cp[3]
         update_rmat!(cell)
         update_fmat!(cell,interaction)
         return cl,El
@@ -156,5 +159,22 @@ function BMfit(vl::Vector{Float64},el::Vector{Float64},cpcell::UnitCell,p0::Vect
         ))')
         gradientDescent!(cell,interaction,maxiter=maxiter,tol=tol)
         return cl,El
+    end
+
+    function MonteCarlo!(cell::UnitCell,interaction::Interaction,ap=0.001,maxstep=100)
+        E=cell_energy(cell,interaction)
+        for i in maxstep
+            dcell=deepcopy(cell)
+            natom=length(cell.atoms)
+            id=rand(1:natom)
+            dcell[id].position+=ap*randn(3)
+            update_rmat!(dcell)
+            dE=cell_energy(dcell,interaction)
+            if dE<E
+                cell=dcell
+                E=dE
+            end
+        end
+
     end
 end

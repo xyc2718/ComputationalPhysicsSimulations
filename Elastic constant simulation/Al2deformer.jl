@@ -51,8 +51,8 @@ atoms = [Atom(pos,Mcu*amuM) for pos in atom_positions]
 
 
 
-projectname="deform_Al2_222_test"
-cp=[2,2,2]
+projectname="deform_Al2_111"
+cp=[1,1,1]
 ct=6.5
 deltalist=range(-0.01,0.01,length=50)
 flaglist=[1,2,3,4,5,6]

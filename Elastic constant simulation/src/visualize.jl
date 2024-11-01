@@ -37,11 +37,13 @@ function visualize_unitcell_atoms(cell::UnitCell;markersize=10,veccolor=:blue,li
         vc=GLMakie.Point3f0(vec*cell.copy[k])
         GLMakie.arrows!(ax, [origin], [origin + vec], color = veccolor, linewidth = linewith)
     end
-    rg=maximum(cell.lattice_vectors*cell.copy)
+    rg1=maximum(cell.lattice_vectors*[cell.copy[1],0.0,0.0])
+    rg2=maximum(cell.lattice_vectors*[0.0,cell.copy[2],0.0])
+    rg3=maximum(cell.lattice_vectors*[0.0,0.0,cell.copy[3]])
     rgmin=minimum(cell.lattice_vectors*cell.copy)
-    xlims!(ax, -rg, rg)
-    ylims!(ax, -rg, rg)
-    zlims!(ax, -rg, rg)
+    xlims!(ax, -rg1, rg1)
+    ylims!(ax, -rg2, rg2)
+    zlims!(ax, -rg3, rg3)
     return fig
 end
 
@@ -98,6 +100,9 @@ function read_json(filename)
     results = []
     open(filename, "r") do file
         for line in eachline(file)
+            if length(line) <=5
+                continue
+            end
             data = JSON.parse(line)
             push!(results, data)
         end
