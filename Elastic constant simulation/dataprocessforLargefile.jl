@@ -3,8 +3,9 @@ code to process log file
 @author xyc
 @email:22307110070m.fudan.edu.cn
 """
-projectpath = "outputWave\\AdHvRk3_NVT_Al2_Wave_T=300K_P=0Gpa_1"
+projectpath = "outputWave\\AdHvRk3_NVE_Al2_Wave_2"
 ifgr=false
+ifv=false
 generate_frame=true
 function fsel(i::Int)
     if i>0&&i<2000
@@ -18,6 +19,13 @@ function grsel(i::Int)
         return true
     end
     return false
+end
+function vsel(i::Int)
+    if i>5000&&i<10000
+        return true
+    end
+    return false
+    
 end
 
 
@@ -90,7 +98,7 @@ end
 
 println("Results written to $propertypath")
 
-if generate_frame || ifgr
+if generate_frame || ifgr||ifv
     println("Loading cell data...")
     all_keys =JLD2.jldopen(cellpath, "r") do file
         keys(file)
@@ -153,4 +161,34 @@ end
         writedlm(file,[rl,gr./normgr])
     end
     println("g(r) calculated and saved to $grfigpath")
+end
+
+if ifv
+    println("Calculating v...")
+
+    sorted_keys = sort(collect(all_keys), by = x -> parse(Int, split(x, "_")[2]))
+    vfigpath=projectpath*"\\v.png"
+    vpath=projectpath*"\\v.txt"
+    dcell0=JLD2.load(cellpath,sorted_keys[1])
+    vl=Vector{Float64}([])
+
+    cell0=dcell0
+    natom=length(cell0.atoms)
+    for key in sorted_keys
+        i = parse(Int, split(key, "_")[2])
+    if vsel(i)
+    dcell=JLD2.load(cellpath,key)
+        for i in 1:natom
+            v=norm(dcell.atoms[i].momentum)/dcell.atoms[i].mass
+            push!(vl,v)
+        end
+        println("processing frame$i")
+    end
+end
+Plots.histogram(vl, bins=100, xlabel="v", ylabel="count", title="Velocity Distribution", label="v", dpi=800, normalize=true)
+    savefig(vfigpath)
+    open(vpath,"w") do file
+        writedlm(file,vl)
+    end
+    println("g(r) calculated and saved to $vfigpath")
 end

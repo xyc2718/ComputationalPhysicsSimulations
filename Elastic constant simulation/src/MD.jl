@@ -246,6 +246,44 @@ function Hz(z::Vector{Float64},cell::UnitCell,interaction::Interaction,thermosta
     return Hz
 end
 
+function Hz(z::Vector{Float64},cell::UnitCell,interaction::Interaction)
+    kb=8.617332385e-5 #eV/K
+    dim=3*length(cell.atoms)
+    Hz=zeros(dim*2)
+    natom=length(cell.atoms)
+    if 2*dim!=length(z)
+        throw("The dimension of z is not consist with the dimension of the system. z should be natom*3+2")
+    end
+    # @threads 
+    for i in 1:natom
+        atom=cell.atoms[i]
+        mi=atom.mass
+        Hz[3*i-2]=z[3*i-2+dim]/mi
+        Hz[3*i-1]=z[3*i-1+dim]/mi
+        Hz[3*i]=z[3*i+dim]/mi
+        fi=cell_forcei(cell,interaction,i)
+        Hz[dim+3*i-2]=fi[1]
+        Hz[dim+3*i-1]=fi[2]
+        Hz[dim+3*i]=fi[3]
+    end
+    return Hz
+end
+function RK3_step!(z::Vector{Float64},dt::Float64,cell::UnitCell, interaction::Interaction)
+    dim=Int(length(z)/2)
+    k1=Hz(z,cell,interaction)
+    zr=z+(dt/2).*k1
+    update_cell_NVE!(zr,cell,interaction)
+    updatezr!(zr,cell)
+    k2=Hz(zr,cell,interaction)
+    zr.=z-dt.*k1+(2*dt).*k2
+    update_cell_NVE!(zr,cell,interaction)
+    updatezr!(zr,cell)
+    k3=Hz(zr,cell,interaction)
+    z.=z+(dt/6).*(k1.+4*k2.+k3)
+    update_cell_NVE!(z,cell,interaction)
+    updatezr!(z,cell)
+end 
+
 
 """
 RK3步进,NVT
@@ -399,6 +437,24 @@ function update_cell_NVT!(z::Vector{Float64},cell::UnitCell,interaction::Interac
 end
 
 
+function update_cell_NVE!(z::Vector{Float64},cell::UnitCell,interaction::Interaction)
+    natom=Int((length(z))/6)
+    rl=z[1:3*natom]
+    pl=z[3*natom+1:6*natom]
+    a,b,c=cell.copy
+    invltv=inv(cell.lattice_vectors)
+    for i in 1:natom
+        ri=invltv*rl[3*i-2:3*i]
+        ri[1]=mod(ri[1]+a,2*a)-a
+        ri[2]=mod(ri[2]+b,2*b)-b
+        ri[3]=mod(ri[3]+c,2*c)-c
+        cell.atoms[i].position=ri
+        cell.atoms[i].momentum=pl[3*i-2:3*i]
+    end
+    update_rmat!(cell)
+    update_fmat!(cell,interaction)
+end
+
 
 
 """
@@ -436,6 +492,13 @@ function cell2z(cell::UnitCell,thermostat::Thermostat)
     rl=[cell.lattice_vectors*atom.position for atom in cell.atoms];
     pl=[atom.momentum for atom in cell.atoms];
     z=vcat(vcat(rl...),thermostat.Rt,vcat(pl...),thermostat.Pt);
+    return z
+end
+
+function cell2z(cell::UnitCell)
+    rl=[cell.lattice_vectors*atom.position for atom in cell.atoms];
+    pl=[atom.momentum for atom in cell.atoms];
+    z=vcat(vcat(rl...),vcat(pl...));
     return z
 end
 
