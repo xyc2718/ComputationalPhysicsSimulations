@@ -517,14 +517,30 @@ mutable struct Neighbor
     end
 end
 
+struct Bond
+    connection::Vector{Vector{Int}}
+    L::Float64
+    ifbond::Bool
+    function Bond(connection::Vector{Vector{Int}},L::Float64)
+        new(connection,L,true)
+    end
+    function Bond()
+        new(Vector{Vector{Int}}([]),0.0,false)
+    end
+end
+
 struct Interactions <: AbstractInteraction
     interactions::Vector{Interaction}
     neighbors::Vector{Neighbor}
+    bouds::Vector{Bond}
     function Interactions(interactions::Vector{Interaction},neighbors::Vector{Neighbor})
-        new(interactions,neighbors)
+        new(interactions,neighbors,[Boud()])
     end
     function Interactions(interaction::Interaction,cell::UnitCell)
-        new([interaction],[Neighbor(cell)])
+        new([interaction],[Neighbor(cell)],[Boud()])
+    end
+    function Interactions(interactions::Vector{Interaction},neighbors::Vector{Neighbor},bouds::Vector{Bond})
+        new(interactions,neighbors,bouds)
     end
 end
 
