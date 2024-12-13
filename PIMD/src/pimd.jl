@@ -13,7 +13,7 @@ using ..MD
 using Base.Threads
 using Statistics
 using  LinearAlgebra
-export initBeadCell!,map2bead,pimdL0Step!,pimdLgammaStep!,pimdLvStep!,pimdStep!,pimdLangevinStep!,updateBeadCell!,cell_Ek,get_bead_z,get_bead_z0
+export initBeadCell!,map2bead,pimdL0Step!,pimdLgammaStep!,pimdLvStep!,pimdStep!,pimdLangevinStep!,updateBeadCell!,cell_Ek,get_bead_z,get_bead_z0,apply_PBC_BDC!,cell_Ek1,cell_Ek0
 
 
 
@@ -197,7 +197,8 @@ function pimdLvStep!(bdc::BeadCell,dt::Float64,interactions::AbstractInteraction
     nbeads=bdc.nbeads
 
     apply_PBC_BDC!(bdc,interactions)
-    @threads for nb in 1:nbeads
+    # @threads 这里使用@threads 大概能提速一倍左右，但是对bead数较多时容易导致内存溢出
+   for nb in 1:nbeads
         celli=bdc.cells[nb]
         # apply_PBC!(celli,interactions)
         for i in eachindex(celli.atoms)
@@ -242,12 +243,34 @@ function cell_Ek(bdc::BeadCell,interactions::AbstractInteraction,Ts::Float64)
         end        
     end
 
-    # Ek1=0.5*sum(pl[2:end,:].^2)/m/N/N
-    Ek1=1.5*natom*kb*Ts
+    Ek1=0.5*Statistics.mean(pl[2:end,:].^2)/m/N
+    # Ek1=1.5*natom*kb*Ts
     # return 3*natom*kb*Ts/2+Ek0/2/N
     return Ek1+Ek0/2/N
     
 end
+
+
+function cell_veri(bdc::BeadCell,interactions::AbstractInteraction)
+    para=getpara()
+    kb=para["kb"]
+    Ek0=0.0
+    N=bdc.nbeads
+    m=bdc.cells[1].atoms[1].mass
+    natom=length(bdc.cells[1].atoms)
+    pl,ql=get_bead_z(bdc)
+    qlm=Statistics.mean(ql[2:end,:],dims=1)
+    for i in 1:natom
+        for j in 1:N
+            fi=cell_forcei(bdc.cells[j],interactions,i)
+            Ek0-= LinearAlgebra.dot((ql[j+1,3*i-2:3*i]-qlm[3*i-2:3*i]),fi)
+        end        
+    end
+    return Ek0/2/N
+end
+
+
+
 
 function cell_Ek0(bdc::BeadCell,interactions::AbstractInteraction,Ts::Float64)
     para=getpara()

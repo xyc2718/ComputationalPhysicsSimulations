@@ -4,7 +4,7 @@ using ..Model
 using LaTeXStrings
 using Printf
 using JSON
-export visualize_unitcell_atoms,visualize_unitcell_atoms0,matrix_to_latex,read_json,read_config
+export visualize_unitcell_atoms,visualize_unitcell_atoms0,matrix_to_latex,read_json,read_config,visualize_beadcell
 
 
 # 定义一个颜色映射函数
@@ -120,5 +120,34 @@ function read_config(path, keyword)
     return nothing
 end
 
+function visualize_beadcell(bdc::BeadCell;markersize=30,veccolor=:blue,linewith=0.01)
+    fig =GLMakie.Figure(size = (800, 600))
+    ax = GLMakie.Axis3(fig[1, 1], title = "Visualization of Atoms in the Unit Cell", 
+    xlabel = "X", ylabel = "Y", zlabel = "Z")
+    nbeads=bdc.nbeads
+    for i in 1:nbeads
+        cell=bdc.cells[i]
+        M=cell.lattice_vectors
+        for atom in cell.atoms
+            p=M*atom.position
+            cni=atom.cn
+            GLMakie.scatter!(ax,p..., color =:red, markersize = markersize,alpha=0.5)
+        end
+        origin=GLMakie.Point3f0(0,0,0)
+        for (k,vec) in enumerate(eachcol(cell.lattice_vectors))
+            vc=GLMakie.Point3f0(vec*cell.copy[k])
+            GLMakie.arrows!(ax, [origin], [origin + vec], color = veccolor, linewidth = linewith)
+        end
+        rg1=maximum(cell.lattice_vectors*[cell.copy[1],0.0,0.0])
+        rg2=maximum(cell.lattice_vectors*[0.0,cell.copy[2],0.0])
+        rg3=maximum(cell.lattice_vectors*[0.0,0.0,cell.copy[3]])
+        rgmin=minimum(cell.lattice_vectors*cell.copy)
+        GLMakie.xlims!(ax, -rg1, rg1)
+        GLMakie.ylims!(ax, -rg2, rg2)
+        GLMakie.zlims!(ax, -rg3, rg3)
+    end
+    return fig
+
+end
 
 end

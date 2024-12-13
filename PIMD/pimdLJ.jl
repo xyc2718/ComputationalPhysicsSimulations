@@ -34,7 +34,7 @@ atom_positions = [
 ] 
 
 
-lattice_constant = 4.0 #A
+lattice_constant = 1.6 #A
 
 lattice_vectors = collect((Matrix([
     lattice_constant 0.0 0.0; #a1
@@ -54,13 +54,15 @@ cell0=UnitCell(lattice_vectors, atoms)
 
 
 projectname="PIMD For Lj fcc"
-ct=3.0
-Ts=100.0
+ct=2.5
+Ts=150.0
 dt=0.001 
-maxstep=100000
+maxstep=1000
 dumpsequence=1
-printsequence=1
-N=16
+printsequence=100
+N=4
+
+#dt=0.0001,t0=100dt
 
 println("PIMD beads: $N")
 cpc=[1,1,1]
@@ -83,10 +85,11 @@ Qs=3*natom*Ts*kb*(TQ*dt)^2
 thermostat = Thermostat(Ts, Qs, 0.0, 0.0)
 
 interactions=Interactions(interaction,inicell)
-minimizeEnergy!(inicell,interactions,rg=[1.2,6.0])
+# minimizeEnergy!(inicell,interactions,rg=[1.2,6.0])
 println("lattice_vectors=",inicell.lattice_vectors)
 # fig=visualize_unitcell_atoms(inicell)
 # display(fig)
+
 
 
 basepath="output\\$projectname"
@@ -156,8 +159,8 @@ cell=deepcopy(inicell)
         # E=cell_energy(cell,interactions)
     end
     if mod(i,dumpsequence)==0
-    writedlm(io, [i, Ek, Ep,Ek+Ep]')
-    write(iojl, "cell_$i", cell)
+    writedlm(io, [i, Ek, Ep,Ek+Ep,Tt]')
+    # write(iojl, "cell_$i", cell)
     end
     if mod(i,printsequence)==0
         println("step: $i, Ek: $Ek,", "Ep: $Ep","E:",Ek+Ep,"T:",Tt)
@@ -165,6 +168,11 @@ cell=deepcopy(inicell)
         # println(pl)
     end
     
+    
+    
 end
+fig=visualize_beadcell(bdc)
+    display(fig)
+    readline()
 end
 end
