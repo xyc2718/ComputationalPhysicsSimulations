@@ -517,6 +517,9 @@ mutable struct Neighbor
     end
 end
 
+"""
+Interactions类型,用于集成多种不同连接关系的相互作用,可用(interaction::Interaction,cell::UnitCell)生成默认全连接
+"""
 struct Interactions <: AbstractInteraction
     interactions::Vector{Interaction}
     neighbors::Vector{Neighbor}
@@ -885,6 +888,9 @@ function dUdhij(fcell::UnitCell,interactions::AbstractInteraction,dr::BigFloat=B
     return re
 end
 
+"""
+计算应力张量
+"""
 function Force_Tensor(cell::UnitCell,interaction::AbstractInteraction;dr::BigFloat=BigFloat("1e-8"))
     ft=force_tensor(cell,interaction)
     dUdh=dUdhij(cell,interaction,BigFloat("1e-8"))
@@ -919,9 +925,9 @@ end
 
 
 
-
-
-
+"""
+用于修改cell的晶格向量,并更新原子位置
+"""
 function set_lattice_vector!(cell::UnitCell,lt::Matrix{Float64},interaction::AbstractInteraction)
     lt0=cell.lattice_vectors
     cell.lattice_vectors=lt
@@ -934,7 +940,10 @@ function set_lattice_vector!(cell::UnitCell,lt::Matrix{Float64},interaction::Abs
 end
 
 
-mutable struct BeadCell
+"""
+BeadCell 类型,用于存储多个晶胞以实现PIMD
+"""
+mutable struct BeadCell<:AbstractCell
     cells::Vector{UnitCell}
     nbeads::Int
     cmat::Matrix{Float64}
