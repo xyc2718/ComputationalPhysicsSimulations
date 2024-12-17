@@ -1,4 +1,6 @@
-
+"""
+Find the min Energy sturcture of Cell
+"""
 module cellmin
 
 using StaticArrays
@@ -62,6 +64,15 @@ function BMfit(vl::Vector{Float64},el::Vector{Float64},cpcell::UnitCell,p0::Vect
     return min_lattice_constant,fig
     end
 
+    """
+    find the min energy position by gradient descent
+    :param cell: cell
+    :param interaction: interaction
+    :param ap: step length
+    :param tol: tolerance
+    :param maxiter: max iteration
+    :param checktime: check time
+    """
     function gradientDescent!(cell::UnitCell,interaction::Interaction;ap::Float64=0.01,tol=1e-8,maxiter=1000,checktime=10)
         El=Vector{Float64}([])
         converge=false
@@ -87,6 +98,9 @@ function BMfit(vl::Vector{Float64},el::Vector{Float64},cpcell::UnitCell,p0::Vect
         return El
     end
 
+    """
+    gradient step
+    """
     function gradientStep!(cell::UnitCell,interaction::Interaction;ap::Float64=0.01)
         ltv=cell.lattice_vectors
         invlt=inv(ltv)
@@ -106,7 +120,10 @@ function BMfit(vl::Vector{Float64},el::Vector{Float64},cpcell::UnitCell,p0::Vect
          update_fmat!(cell,interaction)
     end
 
-
+    """
+    minimize energy by changing lattice constant
+    only for cubic cell
+    """
     function minimizeEnergy!(cell::UnitCell,interaction::Interaction;rg::Vector{Float64}=[1.0,10.0],n::Int=1000)
         El=Vector{Float64}([])
         cl = range(rg[1], stop=rg[2], length=n)
@@ -135,7 +152,9 @@ function BMfit(vl::Vector{Float64},el::Vector{Float64},cpcell::UnitCell,p0::Vect
         return cl,El
     end
 
-    
+    """
+    minimize energy by changing lattice constant gradientDescent to find the min energy position for each lattice constant
+    """
     function minimizeEnergyWithGradient!(cell::UnitCell,interaction::Interaction;rg::Vector{Float64}=[1.0,10.0],n::Int=1000,maxiter::Int=100,tol::Float64
         =1e-6)
         El=Vector{Float64}([])
@@ -161,6 +180,9 @@ function BMfit(vl::Vector{Float64},el::Vector{Float64},cpcell::UnitCell,p0::Vect
         return cl,El
     end
 
+    """
+    Monte Carlo
+    """
     function MonteCarlo!(cell::UnitCell,interaction::Interaction,ap=0.001,maxstep=100)
         E=cell_energy(cell,interaction)
         for i in maxstep

@@ -27,21 +27,22 @@ mutable struct Atom
     mass::Float64
     cn::Int
     bound::Vector{Int}
-    function Atom(position::Vector{Float64},momentum::Vector{Float64},mass::Float64,cn::Int,bound::Vector{Int})
-        new(position,momentum,mass,cn,bound)
+    type::Int
+    function Atom(position::Vector{Float64},momentum::Vector{Float64},mass::Float64,cn::Int,bound::Vector{Int},type::Int)
+        new(position,momentum,mass,cn,bound,type)
     end
     function Atom(position::Vector{Float64})
-        new(position,zeros(3),1.0,1,[0,0,0])
+        new(position,zeros(3),1.0,1,[0,0,0],1)
     end
     function Atom(position::Vector{Float64},momentum::Vector{Float64})
-        new(position,momentum,1.0,1,[0,0,0])
+        new(position,momentum,1.0,1,[0,0,0],1)
     end
 
     function Atom(position::Vector{Float64},mass::Float64)
-        new(position,zeros(3),mass,1,[0,0,0])
+        new(position,zeros(3),mass,1,[0,0,0],1)
     end
     function Atom(position::Vector{Float64},momentum::Vector{Float64},mass::Float64)
-        new(position,momentum,mass,1,[0,0,0])
+        new(position,momentum,mass,1,[0,0,0],1)
     end
 end
 
@@ -115,7 +116,7 @@ function copycell(cell::UnitCell,a::Int,b::Int,c::Int,tol::Float64=0.001)::UnitC
                         end
                     end
                     cn=2^ct
-                    push!(atoms,Atom(newp,pm,m,cn,bd))
+                    push!(atoms,Atom(newp,pm,m,cn,bd,atom.type))
                     push!(pl,newp)
                 end
             end
@@ -352,6 +353,17 @@ end
 :param cutrg: 截断范围
 :param embedding
 """
+
+"""
+相互作用类型,通过二次函数添加截断于cutoff-cutrg - cutoff
+:param energe: 势能函数
+:param force: 力函数 ::SVector{3, Float64} -> SVector{3, Float64}
+:param cutenerge: 截断势能函数
+:param cutforce: 截断力函数
+:param cutoff: 截断距离
+:param cutrg: 截断范围
+:param embedding
+"""
 struct Interaction{F1, F2, F3, F4}
     energy::F1  # 势能函数
     force::F2   # 力函数
@@ -361,97 +373,10 @@ struct Interaction{F1, F2, F3, F4}
     cutrg::Float64   # 截断范围
     embedding::Embedding
     sw::SW
-
-    # 定义构造函数
-    function Interaction(energy::F1, force::F2, cutoff::Float64, cutrg::Float64) where {F1, F2}
-        
-        # 初始化截断势能和力的参数
-        Er2 = energy(cutoff - cutrg)
-        dU2 = -(force(SVector{3}(cutoff - cutrg,0,0)))[1]
-        bb=Vector{Float64}([0.0,0.0,dU2,Er2])
-        x1=cutoff
-        x2=cutoff-cutrg
-        A=[x1^3 x1^2 x1 1;3*x1^2 2*x1 1 0;3*x2^2 2*x2 1 0;x2^3 x2^2 x2 1]
-        a,b,c,d=inv(A)*bb
-
-        # 定义截断势能函数
-        function cutenergy(r::Float64)
-            nr = abs(r)
-            if nr > cutoff
-                return 0.0
-            elseif nr < cutoff - cutrg
-                return energy(r)
-            else
-                return a*nr^3+b*nr^2+c*nr+d
-            end
-        end
-
-        # 定义截断力函数，接收向量输入
-        function cutforce(r::SVector{3, Float64})
-            nr = norm(r)
-            if nr > cutoff
-                return Vector(zeros(3))
-            elseif nr < cutoff - cutrg
-                return force(r)
-            else
-                return -((3 * a * nr^2 +2*b*nr+c) / nr) * r
-            end
-        end
-
-        # 定义截断力函数的重载，使其可以接收 Float64 类型的输入
-        cutforce(r::Float64) = (cutforce(SVector{3}([r, 0, 0])))[1]
-
-        # 返回新的 Interaction 实例
-        new{F1, F2, typeof(cutenergy), typeof(cutforce)}(energy, force, cutenergy, cutforce, cutoff, cutrg,Embedding(),SW())
-    end
+    type::String
 
 
-     # 定义构造函数
-     function Interaction(energy::F1, force::F2, cutoff::Float64, cutrg::Float64,embedding::Embedding) where {F1, F2}
-        
-
-        # 初始化截断势能和力的参数
-        Er2 = energy(cutoff - cutrg)
-        dU2 = -(force(SVector{3}(cutoff - cutrg,0,0)))[1]
-        bb=Vector{Float64}([0.0,0.0,dU2,Er2])
-        x1=cutoff
-        x2=cutoff-cutrg
-        A=[x1^3 x1^2 x1 1;3*x1^2 2*x1 1 0;3*x2^2 2*x2 1 0;x2^3 x2^2 x2 1]
-        a,b,c,d=inv(A)*bb
-
-
-        # 定义截断势能函数
-        function cutenergy(r::Float64)
-            nr = abs(r)
-            if nr > cutoff
-                return 0.0
-            elseif nr < cutoff - cutrg
-                return energy(r)
-            else
-                return a*nr^3+b*nr^2+c*nr+d
-            end
-        end
-
-        # 定义截断力函数，接收向量输入
-        function cutforce(r::SVector{3, Float64})
-            nr = norm(r)
-            if nr > cutoff
-                return Vector(zeros(3))
-            elseif nr < cutoff - cutrg
-                return force(r)
-            else
-                return -((3 * a * nr^2 +2*b*nr+c) / nr) * r
-            end
-        end
-
-        # 定义截断力函数的重载，使其可以接收 Float64 类型的输入
-        cutforce(r::Float64) = (cutforce(SVector{3}([r, 0, 0])))[1]
-
-        # 返回新的 Interaction 实例
-        new{F1, F2, typeof(cutenergy), typeof(cutforce)}(energy, force, cutenergy, cutforce, cutoff, cutrg,embedding,SW())
-    end
-
-    function Interaction(energy::F1, force::F2, cutoff::Float64, cutrg::Float64,sw::SW) where {F1, F2}
+    function Interaction(energy::F1, force::F2, cutoff::Float64, cutrg::Float64,embedding::Embedding,sw::SW) where {F1, F2}
         # 初始化截断势能和力的参数
         Er2 = energy(cutoff - cutrg)
         dU2 = -(force(SVector{3}(cutoff - cutrg,0,0)))[1]
@@ -487,9 +412,25 @@ struct Interaction{F1, F2, F3, F4}
         cutforce(r::Float64) = (cutforce(SVector{3}([r, 0, 0])))[1]
 
         # 返回新的 Interaction 实例
-        new{F1, F2, typeof(cutenergy), typeof(cutforce)}(energy, force, cutenergy, cutforce, cutoff, cutrg,Embedding(),sw)
+        new{F1, F2, typeof(cutenergy), typeof(cutforce)}(energy, force, cutenergy, cutforce, cutoff, cutrg,embedding,sw,"Interaction")
     end
+
+        # 定义构造函数
+        function Interaction(energy::F1, force::F2, cutoff::Float64, cutrg::Float64) where {F1, F2}
+            Interaction(energy, force, cutoff, cutrg, Embedding(), SW())
+        end
+    
+    
+         # 定义构造函数
+         function Interaction(energy::F1, force::F2, cutoff::Float64, cutrg::Float64,embedding::Embedding) where {F1, F2}
+            Interaction(energy, force, cutoff, cutrg, embedding, SW())
+        end
+        function Interaction(energy::F1, force::F2, cutoff::Float64, cutrg::Float64,sw::SW) where {F1, F2}
+            Interaction(energy, force, cutoff, cutrg, Embedding(), sw)
+            
+        end
 end
+
 
 
 

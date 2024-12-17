@@ -8,6 +8,11 @@ Andersen_Hoover_NPT_step!:Intergrate by Liouville operator and Tort Decompositio
 
 Andersen Langvin method:
 LA_step!
+
+NVT ensemble:
+    Nose-Hoover method:Intergrate by 3 order Runge Kuta
+NVE ensemble:Integrate by 3 order Runge Kuta 
+
 Reference:
 [1]Jalkanen, J., & Müser, M. H. (2015). Systematic analysis and modification of embedded-atom potentials: Case study of copper. Modelling and Simulation in Materials Science and Engineering, 23(7), 074001. https://doi.org/10.1088/0965-0393/23/7/074001
 [2]Bereau, T. (2015). Multi-timestep Integrator for the Modified Andersen Barostat. Physics Procedia, 68, 7–15. https://doi.org/10.1016/j.phpro.2015.07.101
@@ -211,7 +216,7 @@ end
 
 """
 计算dH/dz in NVT
-:param z: z=[r1...rn,Rt,Rv,p1,...pn,Pt,Pv]
+:param z: z=[r1...rn,Rt,p1,...pn,Pt]
 :param cell: UnitCell
 :param interaction: Interaction
 :param thermostat: Thermostat
@@ -222,7 +227,7 @@ function Hz(z::Vector{Float64},cell::UnitCell,interaction::Interaction,thermosta
     Hz=zeros(dim*2)
     natom=length(cell.atoms)
     if 2*dim!=length(z)
-        throw("The dimension of z is not consist with the dimension of the system. z should be natom*3+2")
+        throw("The dimension of z is not consist with the dimension of the system. z should be natom*3+1")
     end
     Q=thermostat.Q
     temp=thermostat.T
@@ -246,13 +251,16 @@ function Hz(z::Vector{Float64},cell::UnitCell,interaction::Interaction,thermosta
     return Hz
 end
 
+"""
+Hz for NVE
+"""
 function Hz(z::Vector{Float64},cell::UnitCell,interaction::Interaction)
     kb=8.617332385e-5 #eV/K
     dim=3*length(cell.atoms)
     Hz=zeros(dim*2)
     natom=length(cell.atoms)
     if 2*dim!=length(z)
-        throw("The dimension of z is not consist with the dimension of the system. z should be natom*3+2")
+        throw("The dimension of z is not consist with the dimension of the system. z should be natom*3")
     end
     # @threads 
     for i in 1:natom
@@ -268,6 +276,10 @@ function Hz(z::Vector{Float64},cell::UnitCell,interaction::Interaction)
     end
     return Hz
 end
+
+"""
+RK3 for NVE
+"""
 function RK3_step!(z::Vector{Float64},dt::Float64,cell::UnitCell, interaction::Interaction)
     dim=Int(length(z)/2)
     k1=Hz(z,cell,interaction)
@@ -494,6 +506,7 @@ function cell2z(cell::UnitCell,thermostat::Thermostat)
     z=vcat(vcat(rl...),thermostat.Rt,vcat(pl...),thermostat.Pt);
     return z
 end
+
 
 function cell2z(cell::UnitCell)
     rl=[cell.lattice_vectors*atom.position for atom in cell.atoms];
@@ -772,7 +785,7 @@ Ref:Bereau, T. (2015). Multi-timestep Integrator for the Modified Andersen Baros
 """
 function LA_step!(fcell::UnitCell,interaction::Interaction,dt::Float64,T::Float64,barostat::Barostat,gamma0::Float64,gammav::Float64,n::Int=4)
         fcell.ifrmat=false
-        fcell,iffmat=false
+        fcell.iffmat=false
         kb=8.617332385e-5 #eV/K
         dist=Normal(0,1)        
         Pe=barostat.Pe
