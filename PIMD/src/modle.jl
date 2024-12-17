@@ -945,7 +945,6 @@ function apply_PBC!(cell::UnitCell,interaction::AbstractInteraction)
 end
 
 
-#TODO：cell/BeadCell + molecule connection时的PBC处理
 
 struct molecule
     connection::Vector{Vector{Int}}
