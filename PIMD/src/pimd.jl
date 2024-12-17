@@ -310,6 +310,12 @@ function apply_PBC_BDC!(bdc::BeadCell,interactions::AbstractInteraction)
     end
 end
 
+function apply_PBC_BDC!(bdc::BeadCell,interactions::AbstractInteraction,molecule::Molecule)
+    for cell in bdc.cells
+        apply_PBC!(cell,interactions,molecule)
+    end
+end
+
 
 
 
