@@ -400,7 +400,7 @@ struct Interaction{F1, F2, F3, F4}
         cutforce(r::Float64) = (cutforce(SVector{3}([r, 0, 0])))[1]
 
         # 返回新的 Interaction 实例
-        new{F1, F2, typeof(cutenergy), typeof(cutforce)}(energy, force, cutenergy, cutforce, cutoff, cutrg,embedding,sw,"Interaction")
+        new{F1, F2, typeof(cutenergy), typeof(cutforce)}(energy, force, cutenergy, cutforce, cutoff, cutrg,embedding,sw)
     end
 
         # 定义构造函数
