@@ -366,17 +366,6 @@ end
 :param cutrg: 截断范围
 :param embedding
 """
-
-"""
-相互作用类型,通过二次函数添加截断于cutoff-cutrg - cutoff
-:param energe: 势能函数
-:param force: 力函数 ::SVector{3, Float64} -> SVector{3, Float64}
-:param cutenerge: 截断势能函数
-:param cutforce: 截断力函数
-:param cutoff: 截断距离
-:param cutrg: 截断范围
-:param embedding
-"""
 struct Interaction{F1, F2, F3, F4} <: AbstractInteraction
     energy::F1  # 势能函数
     force::F2   # 力函数
@@ -386,7 +375,6 @@ struct Interaction{F1, F2, F3, F4} <: AbstractInteraction
     cutrg::Float64   # 截断范围
     embedding::Embedding
     sw::SW
-    type::String
 
 
     function Interaction(energy::F1, force::F2, cutoff::Float64, cutrg::Float64,embedding::Embedding,sw::SW) where {F1, F2}
