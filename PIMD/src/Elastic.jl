@@ -25,6 +25,8 @@ include("visualize.jl")
 include("wave.jl")
 include("sw.jl")
 include("pimd.jl")
+include("molecule.jl")
+include("water.jl")
 using .Model
 # using .MEMA
 using .MD
@@ -35,9 +37,12 @@ using .Visualize
 using .Wave
 using .SWPotential
 using .PIMD
+using .MoleculeUtils
+using .WaterModel
 
-
-modules = [Model, MD, cellmin, Deformer,EMA,Visualize,Wave,SWPotential,PIMD]
+modules = [Model, MD, cellmin, Deformer,EMA,Visualize,Wave,SWPotential,PIMD,MoleculeUtils,
+WaterModel
+]
 
 for mod in modules
     for name in names(mod, all=true)

@@ -310,6 +310,7 @@ function apply_PBC_BDC!(bdc::BeadCell,interactions::AbstractInteraction)
     end
 end
 
+#TOFIX:这里实现有问题，要以氧原子质心坐标为准
 function apply_PBC_BDC!(bdc::BeadCell,interactions::AbstractInteraction,molecule::Molecule)
     for cell in bdc.cells
         apply_PBC!(cell,interactions,molecule)

@@ -9,7 +9,7 @@ using StaticArrays
 using LinearAlgebra
 using Base.Threads
 using IterTools
-export Atom, UnitCell, copycell,  Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,filtercell,cell_forceij!,cell_forcei!,force_tensor!,cell_temp,Ngradient0,getrij,is_diagonal_matrix,Embedding,dUdhij,randcell!,Force_Tensor,getrij0,update_rmat!,update_rmati!,update_fmat!,cell_forcei0,set_lattice_vector!,apply_PBC!,SW,Interactions,AbstractInteraction,Neighbor,AbstractCell,BeadCell,getpara,Angel,Bond,Molecule
+export Atom, UnitCell, copycell,  Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,filtercell,cell_forceij!,cell_forcei!,force_tensor!,cell_temp,Ngradient0,getrij,is_diagonal_matrix,Embedding,dUdhij,randcell!,Force_Tensor,getrij0,update_rmat!,update_rmati!,update_fmat!,cell_forcei0,set_lattice_vector!,apply_PBC!,SW,Interactions,AbstractInteraction,Neighbor,AbstractCell,BeadCell,getpara,Angle,Bond,Molecule
 global const kb=8.617332385e-5 #eV/K
 
 function getpara()
@@ -442,6 +442,10 @@ mutable struct Neighbor
         n=length(cell.atoms)
         new([filter(x -> x != i, 1:n) for i in 1:n])
     end
+    function Neighbor()
+        v=Vector{Vector{Int}}([[]])
+        new(v)
+    end
 end
 
 function Default_bond_energy(r::SVector{3, Float64})
@@ -460,57 +464,55 @@ function Default_angle_force(r1::SVector{3, Float64},r2::SVector{3, Float64})
     return (SVector{3,Float64}(0.0,0.0,0.0),SVector{3,Float64}(0.0,0.0,0.0))
 end
 
-struct Bond<:AbstractInteraction
+struct Bond{F1,F2}<:AbstractInteraction
     connection::Vector{Vector{Int}}
     energy::F1
     force::F2
     type::String
-    function Bond(connection::Vector{Vector{Int}},energy::F1,force::F2,L::Float64)
+    function Bond(connection::Vector{Vector{Int}},energy::F1,force::F2) where {F1,F2}
         new{F1,F2}(connection,energy,force,"Bond")
     end
     function Bond()
-        new(Vector{Vector{Int}}([]),Default_bond_energy,Default_bond_force,"Bond")
+        Bond(Vector{Vector{Int}}([]),Default_bond_energy,Default_bond_force)
     end
 end
 
-struct Angle<:AbstractInteraction
+struct Angle{E,F}<:AbstractInteraction
     connection::Vector{Vector{Int}}
-    energy::F1
-    force::F2
+    energy::E
+    force::F
     type::String
-    function Angel(connection::Vector{Vector{Int}},energy::F1,force::F2,L::Float64)
-        new{F1,F2}(connection,energy,force,"Angel")
+    function Angle(connection::Vector{Vector{Int}},energy::E,force::F) where{E,F}
+        new{E,F}(connection,energy,force,"Angle")
     end
-    function Angel()
-        new(Vector{Vector{Int}}([]),Default_Angle_energy,Default_Angle_force,"Angle")
+    function Angle()
+        Angle(Vector{Vector{Int}}([]),Default_Angle_energy,Default_Angle_force)
     end
 end
 
 struct Interactions <: AbstractInteraction
-    interactions::Vector{Interaction}
+    interactions::Vector{AbstractInteraction}
     neighbors::Vector{Neighbor}
     type::String
-    function Interactions(interactions::Vector{Interaction},neighbors::Vector{Neighbor})
+    function Interactions(interactions::Vector{AbstractInteraction},neighbors::Vector{Neighbor})
         new(interactions,neighbors,"Interactions")
     end
-    function Interactions(interaction::Interaction,cell::UnitCell)
+    function Interactions(interaction::AbstractInteraction,cell::UnitCell)
         new([interaction],[Neighbor(cell)],"Interactions")
     end
-    function Interactions(interactions::Vector{Interaction},neighbors::Vector{Neighbor},bouds::Vector{Bond})
-        new(interactions,neighbors,"Interactions")
-    end
+
 end
 
 
-function update_fmat!(cell::UnitCell,interaction::AbstractInteraction)
+function update_fmat!(cell::UnitCell,interactions::AbstractInteraction)
     cell.iffmat = true
    atom=length(cell.atoms)
     Threads.@threads  for i in 1:atom
-                fi=cell_forcei0(cell,interaction,i)
+                fi=cell_forcei0(cell,interactions,i)
                 cell.fmat[i] =fi
     end
-    for k in eachindex(interaction.interactions)
-        interaction=interaction.interactions[k]
+    for k in eachindex(interactions.interactions)
+        interaction=interactions.interactions[k]
         if interaction.type=="Bond"
             for cn in interaction.connection
                 i=cn[1]
@@ -583,6 +585,7 @@ energy=0.0
 ltv=cell.lattice_vectors
 for k in eachindex(interactions.interactions)
     interaction=interactions.interactions[k]
+    if interaction.type=="Interaction"
     neighbor=interactions.neighbors[k]
     if (j in neighbor.neighborlist[i])
             if i !=j
@@ -604,6 +607,7 @@ for k in eachindex(interactions.interactions)
             end
     end
     er=er+energy
+    end
 end
     return er
 end
@@ -650,26 +654,8 @@ function cell_energy(cell::UnitCell,interactions::Interactions;ifnormalize::Bool
     energysw=0.0
     for i in 1:length(cell.atoms)
         for j in i:length(cell.atoms)
-                if interaction.type=="interacion"
                     energy+=cell_energyij(cell,interactions,i,j,ifnormalize=ifnormalize)
                     # println("energy at $i $j is $energy")
-                end
-                if interaction.type=="Bond"
-                    for cn in interaction.connection
-                        i=cn[1]
-                        j=cn[2]
-                        rij=getrij(cell,i,j)
-                        energy+=interaction.energy(rij)
-                    end
-                end
-                if interaction.type=="Angle"
-                    for cn in interaction.connection
-                        i=cn[1]
-                        j=cn[2]
-                        k=cn[3]
-                        energy+=interaction.energy(getrij(cell,i,j),getrij(cell,i,k))
-                    end
-                end
         end
     end
 
@@ -679,13 +665,32 @@ function cell_energy(cell::UnitCell,interactions::Interactions;ifnormalize::Bool
     Ere=energy
     for k in eachindex(interactions.interactions)
         interaction=interactions.interactions[k]
-        if interaction.embedding.ifembedding
-            energyeb=interaction.embedding.embedding_energy(cell)
+        if interaction.type=="Interaction"
+            if interaction.embedding.ifembedding
+                energyeb=interaction.embedding.embedding_energy(cell)
+            end
+            if interaction.sw.ifSW
+                energysw=interaction.sw.SW_energy(cell)
+            end
+            Ere+=energyeb+energysw
         end
-        if interaction.sw.ifSW
-            energysw=interaction.sw.SW_energy(cell)
+
+        if interaction.type=="Bond"
+            for cn in interaction.connection
+                i=cn[1]
+                j=cn[2]
+                rij=getrij(cell,i,j)
+                Ere+=interaction.energy(rij)
+            end
         end
-        Ere+=energyeb+energysw
+        if interaction.type=="Angle"
+            for cn in interaction.connection
+                i=cn[1]
+                j=cn[2]
+                k=cn[3]
+                Ere+=interaction.energy(getrij(cell,i,j),getrij(cell,i,k))
+            end
+        end
 
     end
 
@@ -946,8 +951,9 @@ end
 
 
 
-struct molecule
+struct Molecule
     connection::Vector{Vector{Int}}
+    atoms::Vector{Atom}
 end
 
 function apply_PBC!(cell::UnitCell,molecule::Molecule)
@@ -979,7 +985,7 @@ function apply_PBC!(cell::UnitCell,molecule::Molecule)
             r[1]=r[1]-ix*2*a
             r[2]=r[2]-iy*2*b
             r[3]=r[3]-iz*2*c
-            cell.atoms[atom].position=r
+            cell.atoms[pb].position=r
         end
     end
 end

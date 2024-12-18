@@ -120,7 +120,7 @@ function read_config(path, keyword)
     return nothing
 end
 
-function visualize_beadcell(bdc::BeadCell;markersize=30,veccolor=:blue,linewith=0.01)
+function visualize_beadcell(bdc::BeadCell;markersize=10,veccolor=:blue,linewith=0.01,alpha=0.5)
     fig =GLMakie.Figure(size = (800, 600))
     ax = GLMakie.Axis3(fig[1, 1], title = "Visualization of Atoms in the Unit Cell", 
     xlabel = "X", ylabel = "Y", zlabel = "Z")
@@ -131,7 +131,7 @@ function visualize_beadcell(bdc::BeadCell;markersize=30,veccolor=:blue,linewith=
         for atom in cell.atoms
             p=M*atom.position
             cni=atom.cn
-            GLMakie.scatter!(ax,p..., color =:red, markersize = markersize,alpha=0.5)
+            GLMakie.scatter!(ax,p..., color =:red, markersize = markersize,alpha=alpha)
         end
         origin=GLMakie.Point3f0(0,0,0)
         for (k,vec) in enumerate(eachcol(cell.lattice_vectors))
