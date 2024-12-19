@@ -50,15 +50,15 @@ kb=para["kb"]
 h=para["h"]
 amuM=para["amuM"]
 
-atoms = [Atom(pos,10*amuM) for pos in atom_positions]
+atoms = [Atom(pos,100*amuM) for pos in atom_positions]
 
 cell0=UnitCell(lattice_vectors, atoms)
 
 
 
-projectname="scane PIMD For Lj fcc_2"
+projectname="scane PIMD For Lj fcc_dt=0.0001_fix"
 ct=2.5
-dt=0.001 
+dt=0.0001 
 maxstep=20000
 dumpE=1
 printsequence=100
@@ -70,7 +70,7 @@ Tsrg=1.0:10.0:500.0
 cpc=[1,1,1]
 inicell=filtercell(copycell(cell0,cpc...))
 dr=0.000
-t0=dt
+t0=dt*0.1
 function ULJ(r::Float64)
     return 4*(r^(-12)-r^(-6))
 end
@@ -91,20 +91,20 @@ println("lattice_vectors=",inicell.lattice_vectors)
 
 
 basepath="outputScane\\$projectname"
-# if !isdir(basepath)
-#     mkpath(basepath)
-#     println("Directory $basepath created.\n")
-# else
-#     local counter = 1
-#     local newpath = basepath * "_$counter"
-#     while isdir(newpath)
-#         counter += 1
-#         newpath = basepath * "_$counter"
-#     end
-#     mkpath(newpath)
-#     println("Directory exists,new Directories $newpath created.\n")
-#     basepath=newpath
-# end
+if !isdir(basepath)
+    mkpath(basepath)
+    println("Directory $basepath created.\n")
+else
+    local counter = 1
+    local newpath = basepath * "_$counter"
+    while isdir(newpath)
+        counter += 1
+        newpath = basepath * "_$counter"
+    end
+    mkpath(newpath)
+    println("Directory exists,new Directories $newpath created.\n")
+    basepath=newpath
+end
 
 
 open("$basepath\\Config.txt", "w") do logfile
@@ -137,9 +137,9 @@ open("$basepath\\Log.json", "a") do file
             Qs=3*natom*Ts*kb*(TQ*dt)^2
             thermostat = Thermostat(Ts, Qs, 0.0, 0.0)
 
-            # if N==32 && Ts<20.0
-            #     continue
-            # end
+            if N==64 && Ts<405.0
+                continue
+            end
 
 
                 mkpath("$basepath\\N=$N\\T=$Ts")

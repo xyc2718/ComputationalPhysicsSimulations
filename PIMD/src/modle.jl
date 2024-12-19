@@ -379,6 +379,8 @@ struct Interaction{F1, F2, F3, F4} <: AbstractInteraction
 
 
     function Interaction(energy::F1, force::F2, cutoff::Float64, cutrg::Float64,embedding::Embedding,sw::SW) where {F1, F2}
+
+    function Interaction(energy::F1, force::F2, cutoff::Float64, cutrg::Float64,embedding::Embedding,sw::SW) where {F1, F2}
         # 初始化截断势能和力的参数
         Er2 = energy(cutoff - cutrg)
         dU2 = -(force(SVector{3}(cutoff - cutrg,0,0)))[1]
@@ -491,6 +493,9 @@ struct Angle{E,F}<:AbstractInteraction
     end
 end
 
+"""
+Interactions类型,用于集成多种不同连接关系的相互作用,可用(interaction::Interaction,cell::UnitCell)生成默认全连接
+"""
 struct Interactions <: AbstractInteraction
     interactions::Vector{AbstractInteraction}
     neighbors::Vector{Neighbor}
@@ -930,6 +935,9 @@ function dUdhij(fcell::UnitCell,interactions::AbstractInteraction,dr::BigFloat=B
     return re
 end
 
+"""
+计算应力张量
+"""
 function Force_Tensor(cell::UnitCell,interaction::AbstractInteraction;dr::BigFloat=BigFloat("1e-8"))
     ft=force_tensor(cell,interaction)
     dUdh=dUdhij(cell,interaction,BigFloat("1e-8"))
@@ -1026,7 +1034,10 @@ function set_lattice_vector!(cell::UnitCell,lt::Matrix{Float64},interaction::Abs
 end
 
 
-mutable struct BeadCell
+"""
+BeadCell 类型,用于存储多个晶胞以实现PIMD
+"""
+mutable struct BeadCell<:AbstractCell
     cells::Vector{UnitCell}
     nbeads::Int
     cmat::Matrix{Float64}

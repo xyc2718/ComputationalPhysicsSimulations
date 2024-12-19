@@ -16,7 +16,9 @@ using  LinearAlgebra
 export initBeadCell!,map2bead,pimdL0Step!,pimdLgammaStep!,pimdLvStep!,pimdStep!,pimdLangevinStep!,updateBeadCell!,cell_Ek,get_bead_z,get_bead_z0,apply_PBC_BDC!,cell_Ek1,cell_Ek0
 
 
-
+"""
+return pl,ql for bead cell p[1,:]==p[end,:],q[1,:]==q[end,:]->cells[end]    p[2,:]->cells[1],ql is real position
+"""
 function get_bead_z(bdc::BeadCell)
     nbeads=bdc.nbeads
     natom=length(bdc.cells[1].atoms)
@@ -38,6 +40,9 @@ function get_bead_z(bdc::BeadCell)
     return pl,ql
 end
 
+"""
+return pl,ql for bead cell p[1,:]==p[end,:],q[1,:]==q[end,:]->cells[end]    p[2,:]->cells[1],ql is relative position
+"""
 function get_bead_z0(bdc::BeadCell)
     nbeads=bdc.nbeads
     natom=length(bdc.cells[1].atoms)
@@ -58,6 +63,9 @@ function get_bead_z0(bdc::BeadCell)
     return pl,ql
 end
 
+"""
+Transform Matrix to Norm position
+"""
 function Cmatk(bdc::BeadCell,T)
     N=bdc.nbeads
     cmat=zeros(Float64,N,N)
@@ -85,6 +93,10 @@ function initBeadCell!(bdc::BeadCell,T::Float64=1.0)
     cm=Cmatk(bdc,T)
     bdc.cmat=cm
 end
+
+"""
+Map a UnitCell to BeadCell with copy to nbeads,r will give it a circle displacement
+"""
 function map2bead(cell::UnitCell,nbeads::Int,T=1.0;r=0.00)
     cells=Vector{UnitCell}(undef,nbeads)
     for i in 1:nbeads
@@ -127,6 +139,9 @@ for i in 2:nbeads+1
 
 end
 
+"""
+L for norm mode evolution
+"""
 function pimdL0Step!(bdc::BeadCell,dt::Float64,T::Float64=1.0)
     para=getpara()
     kb=para["kb"]
@@ -150,7 +165,11 @@ function pimdL0Step!(bdc::BeadCell,dt::Float64,T::Float64=1.0)
         wk=2*wn*sin((k-1)*pi/N)
         pl0[k,:]=pl0[k,:].*cos(wk*dt)+ql0[k,:]*(-m*wk).*sin(wk*dt)
         # println("$(ql0)")
-        ql0[k,:]=pl0[k,:].*dt*(I+wk^2*dt^3*(E1+E2*wk^2*dt*2))/m+ql0[k,:].*cos(wk*dt)
+        if wk<0.01
+        ql0[k,:]=pl0[k,:].*dt*(I+wk^2*dt^2*(E1+E2*wk^2*dt*2))/m+ql0[k,:].*cos(wk*dt)
+        else
+            ql0[k,:]=pl0[k,:].*sin(wk*dt)/m/wk+ql0[k,:].*cos(wk*dt)
+        end
         # println("$(ql0)")
     end
     pl0[end,:]=pl0[1,:]
@@ -163,6 +182,9 @@ function pimdL0Step!(bdc::BeadCell,dt::Float64,T::Float64=1.0)
     # return pl,ql
 end
 
+"""
+Langevin thermostat apply on norm mode evolution
+"""
 function pimdLgammaStep!(bdc::BeadCell,dt::Float64,T::Float64=1.0;t0::Float64=0.1)
     para=getpara()
     kb=para["kb"]
@@ -193,6 +215,9 @@ function pimdLgammaStep!(bdc::BeadCell,dt::Float64,T::Float64=1.0;t0::Float64=0.
     updateBeadCell!(bdc,pl,ql)
 end
 
+"""
+L for V(q) evolution
+"""
 function pimdLvStep!(bdc::BeadCell,dt::Float64,interactions::AbstractInteraction)
     nbeads=bdc.nbeads
 
@@ -209,12 +234,18 @@ function pimdLvStep!(bdc::BeadCell,dt::Float64,interactions::AbstractInteraction
     end
 end
 
+"""
+PIMD step with no thermostat
+"""
 function pimdStep!(bdc::BeadCell,dt::Float64,T::Float64,interactions::AbstractInteraction)
     pimdLvStep!(bdc,dt,interactions)
     pimdL0Step!(bdc,dt,T)
     pimdLvStep!(bdc,dt,interactions)
 end
 
+"""
+PIMD step with Langevin thermostat
+"""
 function pimdLangevinStep!(bdc::BeadCell,dt::Float64,T::Float64,interactions::AbstractInteraction;t0::Float64=0.1)
     pimdLgammaStep!(bdc,dt,T,t0=t0)
     pimdLvStep!(bdc,dt,interactions)
@@ -223,6 +254,9 @@ function pimdLangevinStep!(bdc::BeadCell,dt::Float64,T::Float64,interactions::Ab
     pimdLgammaStep!(bdc,dt,T,t0=t0)
 end
 
+"""
+return the kinetic energy of bead cell by calculate veri term
+"""
 function cell_Ek(bdc::BeadCell,interactions::AbstractInteraction,Ts::Float64)
     para=getpara()
     kb=para["kb"]
@@ -250,7 +284,9 @@ function cell_Ek(bdc::BeadCell,interactions::AbstractInteraction,Ts::Float64)
     
 end
 
-
+"""
+veri term
+"""
 function cell_veri(bdc::BeadCell,interactions::AbstractInteraction)
     para=getpara()
     kb=para["kb"]
@@ -271,7 +307,9 @@ end
 
 
 
-
+"""
+return the kinetic energy of bead cell by calculate the harmonic oscillator term，this will lead to larger fluctuate
+"""
 function cell_Ek0(bdc::BeadCell,interactions::AbstractInteraction,Ts::Float64)
     para=getpara()
     kb=para["kb"]
@@ -290,6 +328,9 @@ function cell_Ek0(bdc::BeadCell,interactions::AbstractInteraction,Ts::Float64)
     return 3*natom*N*kb*Ts/2+Ek0/2
 end
 
+"""
+apply PBC on bead cell,this will depend on the center of the Ring
+"""
 function apply_PBC_BDC!(bdc::BeadCell,interactions::AbstractInteraction)
     cpc=bdc.cells[1].copy
     pl,ql=get_bead_z0(bdc)

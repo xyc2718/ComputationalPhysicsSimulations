@@ -55,12 +55,12 @@ cell0=UnitCell(lattice_vectors, atoms)
 
 projectname="PIMD For Lj fcc"
 ct=2.5
-Ts=150.0
-dt=0.001 
-maxstep=1000
+Ts=100.0
+dt=0.0001 
+maxstep=5000
 dumpsequence=1
 printsequence=100
-N=4
+N=32
 
 #dt=0.0001,t0=100dt
 
@@ -68,7 +68,7 @@ println("PIMD beads: $N")
 cpc=[1,1,1]
 inicell=filtercell(copycell(cell0,cpc...))
 dr=0.000
-t0=dt
+t0=0.1*dt
 function ULJ(r::Float64)
     return 4*(r^(-12)-r^(-6))
 end

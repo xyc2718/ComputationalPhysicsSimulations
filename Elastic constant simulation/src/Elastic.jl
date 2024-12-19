@@ -9,7 +9,8 @@ Different MD simulation for NPT and NVT are implemented in MD.jl
                         Andersen Nose-Hoover method: Intergrate by 3 order Runge Kuta or multistep of Liouville operator and Tort Decomposition
                         Multistep of Andersen Langvin method
                     NVT ensemble:
-                        Nose-Hoover method:Intergrate by 3 order Runge Kuta 
+                        Nose-Hoover method:Intergrate by 3 order Runge Kuta
+                    NVE ensemble:Integrate by 3 order Runge Kuta 
     multi-threaded force computation is implemented on the CPU.
 """
 module Elastic

@@ -1,3 +1,6 @@
+"""
+Deformer cell
+"""
 module Deformer
 using Distributions
 using StaticArrays
