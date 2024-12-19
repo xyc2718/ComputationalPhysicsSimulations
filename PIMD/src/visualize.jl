@@ -13,6 +13,7 @@ function color_map(cn)
     return colors[mod(cn - 1, length(colors)) + 1]
 end
 
+
 """
 可视化晶胞原子,并标注晶格向量
 :param cell: UnitCell晶胞
@@ -20,15 +21,22 @@ end
 :param veccolor: 向量颜色
 :param linewith: 线宽
 """
-function visualize_unitcell_atoms(cell::UnitCell;markersize=10,veccolor=:blue,linewith=0.1)::Figure
+function visualize_unitcell_atoms(cell::UnitCell;markersize=10,veccolor=:blue,linewith=0.1,sizelist::Vector{Float64}=[])::Figure
     fig =GLMakie.Figure(size = (800, 600))
     ax = GLMakie.Axis3(fig[1, 1], title = "Visualization of Atoms in the Unit Cell", 
                xlabel = "X", ylabel = "Y", zlabel = "Z")
     M=cell.lattice_vectors
-    for atom in cell.atoms
+    lsz=length(sizelist)
+    for k in eachindex(cell.atoms)
+        atom=cell.atoms[k]
+        if k<=lsz
+            ms=sizelist[k]*markersize
+        else
+            ms=markersize
+        end
         p=M*atom.position
         cni=atom.cn
-        GLMakie.scatter!(ax,p..., color = color_map(cni), markersize = markersize)
+        GLMakie.scatter!(ax,p..., color = color_map(cni), markersize = ms)
     end
     
     # 绘制晶格向量（晶胞的边缘）

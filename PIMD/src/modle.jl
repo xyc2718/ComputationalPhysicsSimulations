@@ -18,7 +18,8 @@ function getpara()
         "amuM" => 1.03642701e-4,   # [m]/amu
         "MAl" => 26.9815385,       # amu
         "P00" => 160.2176565,      # GPa/[p]
-        "h" => 6.582119281e-4      # eV*ps
+        "h" => 6.582119281e-4 ,     # eV*ps
+        "K"=>14.39964485        #eV*A/e^2
     )
 end
 
@@ -518,7 +519,14 @@ function update_fmat!(cell::UnitCell,interactions::AbstractInteraction)
                 i=cn[1]
                 j=cn[2]
                 rij=getrij(cell,i,j)
+        
+
                 fi,fj=interaction.force(rij)
+
+                if norm(fi)>1e2
+                    ltv=cell.lattice_vectors
+                    println("force at $i $j is fi=$fi,rij=$rij,ri=$(ltv*cell.atoms[i].position),rj=$(ltv*cell.atoms[j].position)")
+                end
                 cell.fmat[i]+=fi
                 cell.fmat[j]+=fj
             end
@@ -532,6 +540,11 @@ function update_fmat!(cell::UnitCell,interactions::AbstractInteraction)
                 rij=getrij(cell,i,j)
                 rik=getrij(cell,i,k)
                 fj,fk=interaction.force(rij,rik)
+                if norm(fj)>1e2 || norm(fk)>1e2
+                    ltv=cell.lattice_vectors
+                    println("force at $i $j $k is fj=$fj,fk=$fk,rij=$rij,rik=$rik,ri=$(ltv*cell.atoms[i].position),rj=$(ltv*cell.atoms[j].position),rk=$(ltv*cell.atoms[k].position)")
+                end
+
                 cell.fmat[j]+=fj
                 cell.fmat[k]+=fk
             end

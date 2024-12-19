@@ -11,7 +11,7 @@ function mapCell2Molecue(cell::UnitCell, molecule::Molecule)
     id=1
     for catom in cell.atoms
         r0=catom.position
-        dr=molecule.atoms[1].position-r0
+        dr=-molecule.atoms[1].position+r0
         cni=Vector{Int}(id:id+length(molecule.atoms)-1)
         push!(connection,cni)
         for ma in molecule.atoms            

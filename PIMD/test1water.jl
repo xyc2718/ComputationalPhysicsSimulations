@@ -15,39 +15,31 @@ using Plots
 using Random
 
 
-lattice_constant =1.0 #A
+lattice_constant =4.7 #A
 
-# 定义铜的FCC晶胞的基矢量
+#HCP
 lattice_vectors = collect((Matrix([
     lattice_constant 0.0 0.0; #a1
     0.0 lattice_constant 0.0; #a2
     0.0 0.0 lattice_constant] #a3
 ))')
+# HCP 晶胞原子位置 (正交晶格框架)
 atom_positions = [
-    Vector([0.0, 0.0, 0.0]),
-    Vector([0.0, 0.5, 0.5]),
-    Vector([0.5, 0.0, 0.5]),
-    Vector([0.5, 0.5, 0.0]),
-    Vector([1.0, 0.0, 0.0]),
-    Vector([0.0, 1.0, 0.0]),
-    Vector([0.0, 0.0, 1.0]),
-    Vector([0.5, 1.0, 0.5]),
-    Vector([1.0, 0.5, 0.5]),
-    Vector([0.5, 0.5, 1.0]),
-    Vector([1.0, 0.0, 1.0]),
-    Vector([1.0, 1.0, 0.0]),
-    Vector([0.0, 1.0, 1.0]),
-    Vector([1.0, 1.0, 1.0])
-] 
+    Vector([0.0, 0.0, 0.0]),            # 原子 1
+    Vector([0.5, 0.5, 0.0]),            # 原子 2
+    Vector([0.0, 0.333, 0.5]),          # 原子 3
+    Vector([0.5, 0.833, 0.5])           # 原子 4
+]
 
 cpc=[1,1,1]
 para=getpara()
 kb=para["kb"]
 h=para["h"]
 amuM=para["amuM"]
-O=Atom([0.0, 0.0, 0.0],16.0*amuM)
-H1=Atom([0.0, 0.0, 0.1],1.0*amuM)
-H2=Atom([0.0, 0.1, 0.0],1.0*amuM)
+invlt=inv(lattice_vectors)
+O=Atom(invlt*[0.5, 0.5, 0.5],16.0*amuM)
+H1=Atom(invlt*[0.5+0.98343 , 0.0, 0.1],1.0*amuM)
+H2=Atom(invlt*[0.5-0.15417, 0.1-0.62358, 0.0],1.0*amuM)
 atoms = [Atom(pos,100*amuM) for pos in atom_positions]
 cell0=UnitCell(lattice_vectors, atoms)
 structcell=filtercell(copycell(cell0,cpc...))
@@ -57,102 +49,36 @@ wcell,water=mapCell2Molecue(structcell::UnitCell,mol)
 apply_PBC!(wcell,water)
 println(water.connection)
 println(water.atoms)
-# fig=visualize_unitcell_atoms(wcell)
-# display(fig)
-# readline()
-conOH=Vector{Vector{Int}}([])
-for cn in water.connection
-    for i in 2:length(cn)
-    push!(conOH,[cn[1],cn[i]])
+
+interactions=TIP3P(water)
+
+dt=0.0001
+Ts=200.0
+TQ=10.0
+natom=length(wcell.atoms)
+Qs=3*natom*Ts*kb*(TQ*dt)^2
+thermostat = Thermostat(Ts, Qs, 0.0, 0.0)
+visize=ones(Float64,natom)
+for k in eachindex(visize)
+    if mod(k,3)==0
+        visize[k]=3.0
     end
 end
 
-function getparatip3p()
-    kk=0.0433634
-    return Dict(
-        "kOH" => kk*450,    # eV/A
-        "kHOH" => 55.0*kk,   # [m]/amu
-        "rOH" => 0.9572,       # amu
-        "theta0" => 104.52*pi/180,      # GPa/[p]
-        "h" => 6.582119281e-4      # eV*ps
-    )
-    
-end
-
-function EOH(r::SVector{3,Float64})
-    pare=getparatip3p()
-    k=pare["kOH"]
-    r0=pare["rOH"]
-    return k*(norm(r)-r0)^2
-end
-function FOH(r::SVector{3,Float64})
-    nr=norm(r)
-    pare=getparatip3p()
-    k=pare["kOH"]
-    r0=pare["rOH"]
-    return (2*k*(nr-r0)^2*(r/nr),-2*k*(nr-r0)^2*(r/nr))
-end
-
-bondOH=Bond(conOH,EOH,FOH)
-
-conHOH=water.connection
-
-function EHOH(r1::SVector{3,Float64},r2::SVector{3,Float64})
-    
-    pare=getparatip3p()
-    k=pare["kHOH"]
-    theta0=pare["theta0"]
-    nr1=norm(r1)
-    nr2=norm(r2)
-    cs=LinearAlgebra.dot(r1,r2)/nr1/nr2
-    if cs>1.0
-        cs=1.0
-    end
-    if cs<-1.0
-        cs=-1.0
-    end
-    theta=acos(cs)
-    return k*(theta-theta0)^2
-end
-function FHOH(r1::SVector{3,Float64},r2::SVector{3,Float64})
-    theta0=107*pi/180
-    pare=getparatip3p()
-    k=pare["kHOH"]
-    theta0=pare["theta0"]
-    nr1=norm(r1)
-    nr2=norm(r2)
-    cs=LinearAlgebra.dot(r1,r2)/nr1/nr2
-    n=LinearAlgebra.cross(r1,r2)
-    t1=LinearAlgebra.cross(r1,n)
-    t2=LinearAlgebra.cross(n,r2)
-    t1=t1/norm(t1)
-    t2=t2/norm(t2)
-    if cs>1.0
-        cs=1.0
-    end
-    if cs<-1.0
-        cs=-1.0
-    end
-    theta=acos(cs)
-    return (-2*k*(theta-theta0)*t1,-2*k*(theta-theta0)*t2)
-end
-
-angleHOH=Angle(conHOH,EHOH,FHOH)
-nb=Vector{Neighbor}([Neighbor(),Neighbor()])
-interactionlist=Vector{AbstractInteraction}([bondOH,angleHOH])
-interactions=Interactions(interactionlist,nb)
-
-dt=0.0005
-z=cell2z(wcell)
+z=cell2z(wcell,thermostat)
+# z=cell2z(wcell)
 update_rmat!(wcell)
 update_fmat!(wcell,interactions)
 for step in 1:10000
 
-    RK3_step!(z,dt,wcell,interactions)
+    RK3_step!(z,dt,wcell,interactions,thermostat)
     # pint=pressure_int(wcell,interactions)
     T=cell_temp(wcell)
     println("step: $step, Temp: $T")
+    if mod(step,1)==0
+    figi=visualize_unitcell_atoms(wcell,sizelist=visize)
+    save("test1water1/$(lpad(step,3,'0')).png",figi)
+    end
 end
-fig=visualize_unitcell_atoms0(wcell,iftext=true)
-display(fig)
+
 readline()
