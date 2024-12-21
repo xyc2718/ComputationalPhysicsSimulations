@@ -529,9 +529,9 @@ function update_fmat!(cell::UnitCell,interactions::Interactions)
 
                 fi,fj=interaction.force(rij)
 
-                if norm(fi)>1e2
+                if norm(fi)>1e3
                     ltv=cell.lattice_vectors
-                    println("force at $i $j is fi=$fi,rij=$rij,ri=$(ltv*cell.atoms[i].position),rj=$(ltv*cell.atoms[j].position)")
+                    println("Bond force at $i $j is fi=$fi,rij=$rij,ri=$(ltv*cell.atoms[i].position),rj=$(ltv*cell.atoms[j].position)>1e3")
                 end
                 cell.fmat[i]+=fi
                 cell.fmat[j]+=fj
@@ -548,11 +548,12 @@ function update_fmat!(cell::UnitCell,interactions::Interactions)
                 fj,fk=interaction.force(rij,rik)
                 if norm(fj)>1e2 || norm(fk)>1e2
                     ltv=cell.lattice_vectors
-                    println("force at $i $j $k is fj=$fj,fk=$fk,rij=$rij,rik=$rik,ri=$(ltv*cell.atoms[i].position),rj=$(ltv*cell.atoms[j].position),rk=$(ltv*cell.atoms[k].position)")
+                    println("Angle force at $i $j $k is fj=$fj,fk=$fk,rij=$rij,rik=$rik,ri=$(ltv*cell.atoms[i].position),rj=$(ltv*cell.atoms[j].position),rk=$(ltv*cell.atoms[k].position) > 1e3 ")
                 end
 
                 cell.fmat[j]+=fj
                 cell.fmat[k]+=fk
+                cell.fmat[i]-=(fj+fk)
 
             end
         end
@@ -611,17 +612,18 @@ end
 
 function cell_energyij(cell::UnitCell, interactions::Interactions, i::Int, j::Int; ifnormalize::Bool=false)
 er=0.0
-energy=0.0
 ltv=cell.lattice_vectors
 for k in eachindex(interactions.interactions)
     interaction=interactions.interactions[k]
     if interaction.type=="Interaction"
     neighbor=interactions.neighbors[k]
     # println(k)
-    #     print(neighbor.neighborlist)
+    #     print;n(neighbor.neighborlist)
+    energy=0.0
     try
         if (j in neighbor.neighborlist[i])
                 if i !=j
+                    
                     cutoff = interaction.cutoff
                     cni = cell.atoms[i].cn
                     rij=getrij(cell,i,j)
@@ -636,8 +638,10 @@ for k in eachindex(interactions.interactions)
                     end
                 end
                 if i==j
-                    energy+=interaction.cutenergy(norm(ltv*cell.atoms[i].position))
+                    println("i==j")
+                    energy=interaction.cutenergy(norm(ltv*cell.atoms[i].position))
                 end
+                # println("i=$i,j=$j,E=$energy")
         end
     catch
         println("Error at k=$k,i=$i,j=$j")
@@ -822,6 +826,7 @@ function cell_forcei0(cell::UnitCell,interactions::Interactions,i::Int)::SVector
             for j in neighbor.neighborlist[i]
                 if i!=j
                     forcei+=cell_forceij(cell,interaction,i,j)
+                    # println("k=$k,i=$i,j=$j,force=$forcei,df=$(cell_forceij(cell,interaction,i,j))")
                 end
                 if i==j
                     forcei+=interaction.cutforce(SVector{3,Float64}(ltv*cell.atoms[i].position))

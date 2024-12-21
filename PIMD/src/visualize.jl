@@ -21,7 +21,7 @@ end
 :param veccolor: 向量颜色
 :param linewith: 线宽
 """
-function visualize_unitcell_atoms(cell::UnitCell;markersize=10,veccolor=:blue,linewith=0.1,sizelist::Vector{Float64}=[])::Figure
+function visualize_unitcell_atoms(cell::UnitCell;markersize=10,veccolor=:blue,linewith=0.1,sizelist::Vector{Float64}=Vector{Float64}(undef,0))::Figure
     fig =GLMakie.Figure(size = (800, 600))
     ax = GLMakie.Axis3(fig[1, 1], title = "Visualization of Atoms in the Unit Cell", 
                xlabel = "X", ylabel = "Y", zlabel = "Z")

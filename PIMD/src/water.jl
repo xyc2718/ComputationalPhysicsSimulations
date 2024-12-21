@@ -12,7 +12,7 @@ using ..Model
 using StaticArrays
 using LinearAlgebra
 
-export TIP3P,getparatip3p
+export TIP3P,getparatip3p,EOH,FOH,EHOH,FHOH,LJE,LJF,CoulombE,CoulombF
 
 function getparatip3p()
     kk=0.0433634
@@ -32,7 +32,7 @@ function getparatip3p()
         "eH"=>0.417,
         "ctLJOO"=>2.0*3.15,
         "ctLJHH"=>3.0*0.4,
-        "ctLJOH"=>1.78*2,
+        "ctLJOH"=>1.78*2.0,
         "ctCoulomb"=>3.0, #A
         "ct"=>4.0
     )
@@ -109,7 +109,7 @@ end
 function CoulombE(r::Float64,e1::Float64,e2::Float64)
     para=getpara()
     K=para["K"]
-    return -K*e1*e2/r
+    return K*e1*e2/r
 end
 
 
@@ -117,7 +117,7 @@ function CoulombF(r::SVector{3,Float64},e1::Float64,e2::Float64)::SVector{3,Floa
     nr=norm(r)
     para=getpara()
     K=para["K"]
-    return e1*e2/nr^3*r
+    return e1*e2/nr^3*r*K
 end
 
 """
@@ -233,12 +233,20 @@ function TIP3P(water::Molecule;cutCoulomb::Float64=-1.0)
     nb=Vector{Neighbor}([Neighbor(),Neighbor(),NeighborLJOO,NeighborLJOH,NeighborLJHH,NeighborCoulombOO,NeighborCoulombOH,NeighborCoulombHH])
     interactionlist=Vector{AbstractInteraction}([bondOH,angleHOH,interLJOO,interLJOH,interLJHH,interCoulombOO,interCoulombOH,interCoulombHH])
     interactions=Interactions(interactionlist,nb)
-    # nb=Vector{Neighbor}([Neighbor(),Neighbor(),NeighborLJOO,NeighborLJOH,NeighborLJHH])
-    # interactionlist=Vector{AbstractInteraction}([bondOH,angleHOH,interLJOO,interLJOH,interLJHH])
+
+
+    # nb=Vector{Neighbor}([NeighborLJOO,NeighborLJOH,NeighborLJHH])
+    # interactionlist=Vector{AbstractInteraction}([interLJOO,interLJOH,interLJHH])
+    # nb=Vector{Neighbor}([NeighborLJOO])
+    # interactionlist=Vector{AbstractInteraction}([interLJOO])
+    #   nb=Vector{Neighbor}([NeighborLJHH])
+    # interactionlist=Vector{AbstractInteraction}([interLJHH])
     # interactions=Interactions(interactionlist,nb)
-    
+    # println([NeighborLJOO,NeighborLJHH])
+
     # nb=Vector{Neighbor}([NeighborCoulombOO,NeighborCoulombOH,NeighborCoulombHH])
     # interactionlist=Vector{AbstractInteraction}([interCoulombOO,interCoulombOH,interCoulombHH])
+
     # interactions=Interactions(interactionlist,nb)
     # nb=Vector{Neighbor}([Neighbor(),Neighbor()])
     # interactionlist=Vector{AbstractInteraction}([bondOH,angleHOH])
