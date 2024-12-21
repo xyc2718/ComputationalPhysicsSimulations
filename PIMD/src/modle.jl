@@ -521,7 +521,7 @@ function update_fmat!(cell::UnitCell,interactions::Interactions)
     for k in eachindex(interactions.interactions)
         interaction=interactions.interactions[k]
         if interaction.type=="Bond"
-            for cn in interaction.connection
+            Threads.@threads  for cn in interaction.connection
                 i=cn[1]
                 j=cn[2]
                 rij=getrij(cell,i,j)
@@ -539,7 +539,7 @@ function update_fmat!(cell::UnitCell,interactions::Interactions)
             
         end
         if interaction.type=="Angle"
-            for cn in interaction.connection
+          for cn in interaction.connection
                 i=cn[1]
                 j=cn[2]
                 k=cn[3]

@@ -146,8 +146,9 @@ function pimdL0Step!(bdc::BeadCell,dt::Float64,T::Float64=1.0)
     para=getpara()
     kb=para["kb"]
     h=para["h"]
-    m=bdc.cells[1].atoms[1].mass
+    
     N=bdc.nbeads
+    m = [atom.mass for atom in bdc.cells[1].atoms for _ in 1:3]
     natom=length(bdc.cells[1].atoms)
     betan=1/N/kb/T
     wn=1.0/h/betan
@@ -163,12 +164,12 @@ function pimdL0Step!(bdc::BeadCell,dt::Float64,T::Float64=1.0)
     E2=I/120
     @threads for k in 1:N
         wk=2*wn*sin((k-1)*pi/N)
-        pl0[k,:]=pl0[k,:].*cos(wk*dt)+ql0[k,:]*(-m*wk).*sin(wk*dt)
+        pl0[k,:]=pl0[k,:].*cos(wk*dt)+m.*ql0[k,:]*(-wk).*sin(wk*dt)
         # println("$(ql0)")
         if wk<0.01
-        ql0[k,:]=pl0[k,:].*dt*(I+wk^2*dt^2*(E1+E2*wk^2*dt*2))/m+ql0[k,:].*cos(wk*dt)
+        ql0[k,:]=pl0[k,:].*dt*(I+wk^2*dt^2*(E1+E2*wk^2*dt*2))./m+ql0[k,:].*cos(wk*dt)
         else
-            ql0[k,:]=pl0[k,:].*sin(wk*dt)/m/wk+ql0[k,:].*cos(wk*dt)
+            ql0[k,:]=pl0[k,:].*sin(wk*dt)./m/wk+ql0[k,:].*cos(wk*dt)
         end
         # println("$(ql0)")
     end
@@ -189,8 +190,9 @@ function pimdLgammaStep!(bdc::BeadCell,dt::Float64,T::Float64=1.0;t0::Float64=0.
     para=getpara()
     kb=para["kb"]
     h=para["h"]
-    m=bdc.cells[1].atoms[1].mass
     N=bdc.nbeads
+    m = [atom.mass for atom in bdc.cells[1].atoms for _ in 1:3]
+   
     natom=length(bdc.cells[1].atoms)
     betan=1/N/kb/T
     wn=1.0/h/betan
@@ -207,7 +209,10 @@ function pimdLgammaStep!(bdc::BeadCell,dt::Float64,T::Float64=1.0;t0::Float64=0.
         end
         c1k=exp(-gammak*dt*0.5)
         c2k=sqrt(1-c1k^2)
-        pl0[k,:]=pl0[k,:].*c1k+sqrt(m/betan)*c2k*randn(3*natom)
+        # println("1",size(m))
+        # println(m)
+        # println("2",size(pl0[k,:]))
+        pl0[k,:]=pl0[k,:].*c1k.+sqrt.(m./betan).*c2k.*randn(3*natom)
     end
     pl0[end,:]=pl0[1,:]
     pl[2:end,:]=bdc.cmat*pl0[1:end-1,:]
@@ -262,7 +267,7 @@ function cell_Ek(bdc::BeadCell,interactions::AbstractInteraction,Ts::Float64)
     kb=para["kb"]
     Ek0=0.0
     N=bdc.nbeads
-    m=bdc.cells[1].atoms[1].mass
+    mc = [atom.mass for atom in bdc.cells[1].atoms for _ in 1:3]
     natom=length(bdc.cells[1].atoms)
     pl,ql=get_bead_z(bdc)
     qlm=Statistics.mean(ql[2:end,:],dims=1)
@@ -276,8 +281,8 @@ function cell_Ek(bdc::BeadCell,interactions::AbstractInteraction,Ts::Float64)
             # println(LinearAlgebra.dot((ql[j+1,3*i-2:3*i]-qlm[3*i-2:3*i]),fi))
         end        
     end
-
-    Ek1=0.5*Statistics.mean(pl[2:end,:].^2)/m/N
+    m=repeat(mc',N,1)
+    Ek1=0.5*Statistics.mean((pl[2:end,:].^2)./m)/N
     # Ek1=1.5*natom*kb*Ts
     # return 3*natom*kb*Ts/2+Ek0/2/N
     return Ek1+Ek0/2/N
@@ -292,7 +297,6 @@ function cell_veri(bdc::BeadCell,interactions::AbstractInteraction)
     kb=para["kb"]
     Ek0=0.0
     N=bdc.nbeads
-    m=bdc.cells[1].atoms[1].mass
     natom=length(bdc.cells[1].atoms)
     pl,ql=get_bead_z(bdc)
     qlm=Statistics.mean(ql[2:end,:],dims=1)
@@ -315,15 +319,17 @@ function cell_Ek0(bdc::BeadCell,interactions::AbstractInteraction,Ts::Float64)
     kb=para["kb"]
     h=para["h"]
     Ek0=0.0
-    m=bdc.cells[1].atoms[1].mass
+   
     N=bdc.nbeads
     betan=1/N/kb/Ts
     wn=1.0/h/betan
-  
+    N=bdc.nbeads
+    m = [atom.mass for atom in bdc.cells[1].atoms for _ in 1:3]
     natom=length(bdc.cells[1].atoms)
     pl,ql=get_bead_z(bdc)
         for j in 1:N-1
-            Ek0-=sum(((ql[j+2,:]-ql[j+1,:]).^2).*(wn^2*m/2 ))
+        
+            Ek0-=sum((((ql[j+2,:]-ql[j+1,:]).^2).*m).*(wn^2/2 ))
         end        
     return 3*natom*N*kb*Ts/2+Ek0/2
 end
