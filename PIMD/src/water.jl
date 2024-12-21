@@ -1,3 +1,12 @@
+"""
+Water Model of TIP3P
+https://docs.lammps.org/Howto_tip3p.html
+
+As Coulomb Potential is Long Range, we need to use Ewald Summation OR PPPM Grid to calculate it in Periodic Boundary Condition.
+The Ewald Simulation is not implemented in this code yet.
+So the Energy of NVE ensemble is not conserved and will increase withh PPP.
+You need to selcet a good cutoff of Coulomb Potential when simmulate in NVT/NVE ensemble.The Defalut cutoff is 3.0A.
+"""
 module WaterModel
 using ..Model
 using StaticArrays
@@ -14,14 +23,18 @@ function getparatip3p()
         "theta0" => 104.52*pi/180,      # GPa/[p]
         "h" => 6.582119281e-4 ,     # eV*ps
         "eOO"=>0.1521*kk,
-        "sigmaOO"=>3.1507,
+        "sigmaOO"=>3.1507, #A
         "eOH"=>0.0836*kk,
         "sigmaOH"=>1.7753,
         "eHH"=>0.0460*kk,
         "sigmaHH"=>0.4,
         "eO"=>-0.834,
         "eH"=>0.417,
-        "ct"=>3.0,
+        "ctLJOO"=>2.0*3.15,
+        "ctLJHH"=>3.0*0.4,
+        "ctLJOH"=>1.78*2,
+        "ctCoulomb"=>3.0, #A
+        "ct"=>4.0
     )
     
 end
@@ -96,7 +109,7 @@ end
 function CoulombE(r::Float64,e1::Float64,e2::Float64)
     para=getpara()
     K=para["K"]
-    return K*e1*e2/r
+    return -K*e1*e2/r
 end
 
 
@@ -104,10 +117,15 @@ function CoulombF(r::SVector{3,Float64},e1::Float64,e2::Float64)::SVector{3,Floa
     nr=norm(r)
     para=getpara()
     K=para["K"]
-    return -e1*e2/nr^3*r
+    return e1*e2/nr^3*r
 end
 
-function TIP3P(water::Molecule)
+"""
+return the TIP3P Interactions
+you need to map molecule to a cell and get water(typeof Molecule) from it
+cutCoulomb is the cutoff of Coulomb Potential, if it is less than 0, the default value will be used.
+"""
+function TIP3P(water::Molecule;cutCoulomb::Float64=-1.0)
     
     conOH=Vector{Vector{Int}}([])
     for cn in water.connection
@@ -118,8 +136,9 @@ function TIP3P(water::Molecule)
     paratip3p=getparatip3p()
     bondOH=Bond(conOH,EOH,FOH)
     conHOH=water.connection
-    Oid=[i for i in 1:length(water.atoms) if mod(i,3)==0]
-    Hid=[i for i in 1:length(water.atoms) if mod(i,3)!=0 ]
+    natom= maximum(vcat(water.connection...))
+    Oid=[i for i in 1:natom if mod(i,3)==1]
+    Hid=[i for i in 1:natom  if mod(i,3)!=1 ]
 
     LJOO=Vector{Vector{Int}}([])
     LJOH=Vector{Vector{Int}}([])
@@ -127,23 +146,54 @@ function TIP3P(water::Molecule)
     CoulombOO=Vector{Vector{Int}}([])
     CoulombOH=Vector{Vector{Int}}([])
     CoulombHH=Vector{Vector{Int}}([])
-    for i in Oid
-        push!(LJOO,filter(x->x!=i,Oid))
-        push!(LJOH,filter(x->x!=i,Hid))
-        push!(CoulombOH,filter(x->x!=i,Hid))
-        push!(CoulombOO,filter(x->x!=i,Oid))
+    for i in 1:natom
+        if i in Oid
+            push!(LJOO,filter(x->x!=i,Oid))
+            push!(LJOH,filter(x->(x!=i+1)&&(x!=i+2),Hid))
+            push!(CoulombOH,filter(x->x!=i,Hid))
+            push!(CoulombOO,filter(x->x!=i,Oid))
+        else
+            push!(LJOO,[])
+            if mod(i,3)==2
+                push!(LJOH,filter(x->x!=i-1,Oid))
+            end
+            if mod(i,3)==0
+                push!(LJOH,filter(x->x!=i-2,Oid))
+            end
+
+            push!(CoulombOH,Oid)
+            push!(CoulombOO,[])
+        end
     end
 
-    for i in Hid
-        if mod(i,3)==1
-            push!(LJHH,filter(x->(x!=i)&&(x!=i+1),Hid))
+
+    for i in 1:natom
+        if i in Hid
+            if mod(i,3)==2
+                push!(LJHH,filter(x->(x!=i)&&(x!=i+1),Hid))
+            end
+            if mod(i,3)==0
+                push!(LJHH,filter(x->(x!=i)&&(x!=i-1),Hid))
+            end
+            push!(CoulombHH,filter(x->x!=i,Hid))
+        else
+            push!(LJHH,[])
+            push!(CoulombHH,[])
         end
-        if mod(i,3)==2
-            push!(LJHH,filter(x->(x!=i)&&(x!=i-1),Hid))
-        end
-        push!(CoulombHH,filter(x->x!=i,Hid))
 
     end
+    # println(conOH)
+    # println(conHOH)
+    # println(Oid)
+    # println(natom)
+    # println(LJOO)
+    # println(LJOH)
+    # println(LJHH)
+    # println(CoulombOO)
+    # println(CoulombOH)
+    # println(CoulombHH)
+    
+
     LJOOE(r::Float64)=LJE(r,paratip3p["eOO"],paratip3p["sigmaOO"])
     LJOHE(r::Float64)=LJE(r,paratip3p["eOH"],paratip3p["sigmaOH"])
     LJHHE(r::Float64)=LJE(r,paratip3p["eHH"],paratip3p["sigmaHH"])
@@ -156,18 +206,25 @@ function TIP3P(water::Molecule)
     CoulombOOF(r::SVector{3,Float64})=CoulombF(r,paratip3p["eO"],paratip3p["eO"])
     CoulombOHF(r::SVector{3,Float64})=CoulombF(r,paratip3p["eO"],paratip3p["eH"])
     CoulombHHF(r::SVector{3,Float64})=CoulombF(r,paratip3p["eH"],paratip3p["eH"])
-    ct=paratip3p["ct"]
-    interLJOO=Interaction(LJOOE,LJOOF,ct,0.1)
+    ct=paratip3p["ctLJOO"]
+    interLJOO=Interaction(LJOOE,LJOOF,ct,0.1*ct)
     NeighborLJOO=Neighbor(LJOO)
-    interLJOH=Interaction(LJOHE,LJOHF,ct,0.1)
+    ct=paratip3p["ctLJOH"]
+    interLJOH=Interaction(LJOHE,LJOHF,ct,0.1*ct)
     NeighborLJOH=Neighbor(LJOH)
-    interLJHH=Interaction(LJHHE,LJHHF,ct,0.1)
+    ct=paratip3p["ctLJHH"]
+    interLJHH=Interaction(LJHHE,LJHHF,ct,0.1*ct)
     NeighborLJHH=Neighbor(LJHH)
-    interCoulombOO=Interaction(CoulombOOE,CoulombOOF,ct,0.1)
+    if cutCoulomb<0
+        ct=paratip3p["ctCoulomb"]
+    else
+        ct=cutCoulomb
+    end
+    interCoulombOO=Interaction(CoulombOOE,CoulombOOF,ct,0.1*ct)
     NeighborCoulombOO=Neighbor(CoulombOO)
-    interCoulombOH=Interaction(CoulombOHE,CoulombOHF,ct,0.1)
+    interCoulombOH=Interaction(CoulombOHE,CoulombOHF,ct,0.1*ct)
     NeighborCoulombOH=Neighbor(CoulombOH)
-    interCoulombHH=Interaction(CoulombHHE,CoulombHHF,ct,0.1)
+    interCoulombHH=Interaction(CoulombHHE,CoulombHHF,ct,0.1*ct)
     NeighborCoulombHH=Neighbor(CoulombHH)
 
 
@@ -176,6 +233,23 @@ function TIP3P(water::Molecule)
     nb=Vector{Neighbor}([Neighbor(),Neighbor(),NeighborLJOO,NeighborLJOH,NeighborLJHH,NeighborCoulombOO,NeighborCoulombOH,NeighborCoulombHH])
     interactionlist=Vector{AbstractInteraction}([bondOH,angleHOH,interLJOO,interLJOH,interLJHH,interCoulombOO,interCoulombOH,interCoulombHH])
     interactions=Interactions(interactionlist,nb)
+    # nb=Vector{Neighbor}([Neighbor(),Neighbor(),NeighborLJOO,NeighborLJOH,NeighborLJHH])
+    # interactionlist=Vector{AbstractInteraction}([bondOH,angleHOH,interLJOO,interLJOH,interLJHH])
+    # interactions=Interactions(interactionlist,nb)
+    
+    # nb=Vector{Neighbor}([NeighborCoulombOO,NeighborCoulombOH,NeighborCoulombHH])
+    # interactionlist=Vector{AbstractInteraction}([interCoulombOO,interCoulombOH,interCoulombHH])
+    # interactions=Interactions(interactionlist,nb)
+    # nb=Vector{Neighbor}([Neighbor(),Neighbor()])
+    # interactionlist=Vector{AbstractInteraction}([bondOH,angleHOH])
+    # interactions=Interactions(interactionlist,nb)
+
+    # nb=Vector{Neighbor}([NeighborLJHH])
+    # interactionlist=Vector{AbstractInteraction}([interLJHH])
+    # interactions=Interactions(interactionlist,nb)
+    # println(interCoulombOO.cutoff)
+    # println(NeighborCoulombOO)
+    # println(NeighborLJHH)
     return interactions
 end
 

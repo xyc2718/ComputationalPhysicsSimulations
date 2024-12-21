@@ -232,7 +232,8 @@ end
 function update_rmat!(cell::AbstractCell)
     cell.ifrmat = true
     atom=length(cell.atoms)
-Threads.@threads for i in 1:atom
+   
+    Threads.@threads for i in 1:atom
         for j in i:atom
             rij=getrij0(cell,i,j)
             cell.rmat[i,j] = rij
@@ -379,8 +380,6 @@ struct Interaction{F1, F2, F3, F4} <: AbstractInteraction
 
 
     function Interaction(energy::F1, force::F2, cutoff::Float64, cutrg::Float64,embedding::Embedding,sw::SW) where {F1, F2}
-
-    function Interaction(energy::F1, force::F2, cutoff::Float64, cutrg::Float64,embedding::Embedding,sw::SW) where {F1, F2}
         # 初始化截断势能和力的参数
         Er2 = energy(cutoff - cutrg)
         dU2 = -(force(SVector{3}(cutoff - cutrg,0,0)))[1]
@@ -510,13 +509,15 @@ struct Interactions <: AbstractInteraction
 end
 
 
-function update_fmat!(cell::UnitCell,interactions::AbstractInteraction)
+function update_fmat!(cell::UnitCell,interactions::Interactions)
     cell.iffmat = true
    atom=length(cell.atoms)
-    Threads.@threads  for i in 1:atom
+
+   Threads.@threads for i in 1:atom
                 fi=cell_forcei0(cell,interactions,i)
                 cell.fmat[i] =fi
     end
+
     for k in eachindex(interactions.interactions)
         interaction=interactions.interactions[k]
         if interaction.type=="Bond"
@@ -552,12 +553,23 @@ function update_fmat!(cell::UnitCell,interactions::AbstractInteraction)
 
                 cell.fmat[j]+=fj
                 cell.fmat[k]+=fk
+
             end
         end
     end
+
 end
 
 
+function update_fmat!(cell::UnitCell,interactions::Interaction)
+    cell.iffmat = true
+   atom=length(cell.atoms)
+     
+   Threads.@threads for i in 1:atom
+                fi=cell_forcei0(cell,interactions,i)
+                cell.fmat[i] =fi
+    end
+end
 
 """
 计算cell温度,减去了质心动能
@@ -605,24 +617,32 @@ for k in eachindex(interactions.interactions)
     interaction=interactions.interactions[k]
     if interaction.type=="Interaction"
     neighbor=interactions.neighbors[k]
-    if (j in neighbor.neighborlist[i])
-            if i !=j
-                cutoff = interaction.cutoff
-                cni = cell.atoms[i].cn
-                rij=getrij(cell,i,j)
-                nr=norm(rij)
-                if nr>cutoff
-                    energy=0.0
-                else
-                    energy=interaction.cutenergy(nr)
-                    if ifnormalize
-                        energy /= cni
+    # println(k)
+    #     print(neighbor.neighborlist)
+    try
+        if (j in neighbor.neighborlist[i])
+                if i !=j
+                    cutoff = interaction.cutoff
+                    cni = cell.atoms[i].cn
+                    rij=getrij(cell,i,j)
+                    nr=norm(rij)
+                    if nr>cutoff
+                        energy=0.0
+                    else
+                        energy=interaction.cutenergy(nr)
+                        if ifnormalize
+                            energy /= cni
+                        end
                     end
                 end
-            end
-            if i==j
-                energy+=interacion.cutenerge(norm(ltv*cell.atoms[i].position))
-            end
+                if i==j
+                    energy+=interaction.cutenergy(norm(ltv*cell.atoms[i].position))
+                end
+        end
+    catch
+        println("Error at k=$k,i=$i,j=$j")
+        println("neighborlist:$(neighbor.neighborlist)")
+        throw("Error at k=$k,i=$i")
     end
     er=er+energy
     end
@@ -743,28 +763,28 @@ function cell_forceij(cell::UnitCell, interaction::Interaction, i::Int, j::Int):
 end
 
 
-function cell_forceij(cell::UnitCell, interactions::Interactions, i::Int, j::Int)::SVector{3, Float64}
-    F=SVector{3,Float64}(0.0, 0.0, 0.0) 
-    for k in eachindex(interactions.interactions)
-        interaction=interactions.interactions[k]
-        neighbor=interactions.neighbors[k]
-        if (j in neighbor.neighborlist[i])
-            cutoff = interaction.cutoff
-            rij=getrij(cell,i,j)
-            nr=norm(rij)
-            if nr>cutoff
-                force=SVector{3,Float64}(0.0, 0.0, 0.0)
-            else
-                force=interaction.cutforce(rij)
-            end 
-            if any(isnan,force)
-                throw("Warning the same atoms of atom i=$i j=$j lead to the nan force")
-            end
-            F=F-force
-        end
-    end
-    return F
-end
+# function cell_forceij(cell::UnitCell, interactions::Interactions, i::Int, j::Int)::SVector{3, Float64}
+#     F=SVector{3,Float64}(0.0, 0.0, 0.0) 
+#     for k in eachindex(interactions.interactions)
+#         interaction=interactions.interactions[k]
+#         neighbor=interactions.neighbors[k]
+#         if (j in neighbor.neighborlist[i])
+#             cutoff = interaction.cutoff
+#             rij=getrij(cell,i,j)
+#             nr=norm(rij)
+#             if nr>cutoff
+#                 force=SVector{3,Float64}(0.0, 0.0, 0.0)
+#             else
+#                 force=interaction.cutforce(rij)
+#             end 
+#             if any(isnan,force)
+#                 throw("Warning the same atoms of atom i=$i j=$j lead to the nan force")
+#             end
+#             F=F-force
+#         end
+#     end
+#     return F
+# end
 
 
 """
@@ -797,7 +817,7 @@ function cell_forcei0(cell::UnitCell,interactions::Interactions,i::Int)::SVector
 
     for k in eachindex(interactions.interactions)
         interaction=interactions.interactions[k]
-        if interaction.type=="interaction"
+        if interaction.type=="Interaction"
             neighbor=interactions.neighbors[k]
             for j in neighbor.neighborlist[i]
                 if i!=j
