@@ -17,6 +17,7 @@ module Elastic
 
 include("modle.jl")
 include("MD.jl")
+include("pimd.jl")
 include("cellmin.jl")
 # include("mema.jl")
 include("deformer.jl")
@@ -24,24 +25,23 @@ include("ema.jl")
 include("visualize.jl")
 include("wave.jl")
 include("sw.jl")
-include("pimd.jl")
 include("molecule.jl")
 include("water.jl")
 using .Model
 # using .MEMA
 using .MD
+using .PIMD
 using .cellmin
 using .Deformer
 using .EMA
-using .Visualize
 using .Wave
 using .SWPotential
-using .PIMD
+using .Visualize
 using .MoleculeUtils
 using .WaterModel
 
 modules = [Model, MD, cellmin, Deformer,EMA,Visualize,Wave,SWPotential,PIMD,MoleculeUtils,
-WaterModel
+WaterModel,SWPotential
 ]
 
 for mod in modules

@@ -27,7 +27,7 @@ using Base.Threads
 using JLD2
 
 
-export pressure_int,Thermostat,Barostat,Hz,RK3_step!,z2atoms,z2cell,cell2z,dUdV_default,update_cell!,initT!,initcell,dUdV_default,Nhcpisoint!,Andersen_Hoover_NPT_step!,LA_step!,minEenergyCell
+export pressure_int,Thermostat,Barostat,Hz,RK3_step!,z2atoms,z2cell,cell2z,dUdV_default,update_cell!,initT!,initcell,dUdV_default,Nhcpisoint!,Andersen_Hoover_NPT_step!,LA_step!,minEenergyCell,provide_cell,LangevinVerlet_step!
 
 
 """
@@ -49,13 +49,14 @@ function dUdV_default(inicell::UnitCell,interaction::AbstractInteraction,dV::Big
 
     dcell=deepcopy(inicell)
     dcell.lattice_vectors.=ltv1
-    for i in 1:natom
-        ri=(inv(ltv1))*ltv*dcell.atoms[i].position
-        for j in 1:3
-            dcell.atoms[i].position[j]=mod(ri[j]+cp[j],2*cp[j])-cp[j]
-        end
-        # dcell.atoms[i].position=(ltv1)*ltv*dcell.atoms[i].position
-    end
+    # for i in 1:natom
+    #     ri=(inv(ltv1))*ltv*dcell.atoms[i].position
+    #     for j in 1:3
+    #         dcell.atoms[i].position[j]=mod(ri[j]+cp[j],2*cp[j])-cp[j]
+    #     end
+    #     # dcell.atoms[i].position=(ltv1)*ltv*dcell.atoms[i].position
+    # end
+    apply_PBC!(dcell)
     update_rmat!(dcell)
     energy1=cell_energy(dcell,interaction)
     # fig=visualize_unitcell_atoms0(dcell)
@@ -63,13 +64,14 @@ function dUdV_default(inicell::UnitCell,interaction::AbstractInteraction,dV::Big
 
     dcell=deepcopy(inicell)
     dcell.lattice_vectors.=ltv2
-    for i in 1:natom
-        ri=(inv(ltv2))*ltv*dcell.atoms[i].position
-        for j in 1:3
-            dcell.atoms[i].position[j]=mod(ri[j]+cp[j],2*cp[j])-cp[j]
-        end
-        # dcell.atoms[i].position=(ltv2)*ltv*dcell.atoms[i].position
-    end
+    # for i in 1:natom
+    #     ri=(inv(ltv2))*ltv*dcell.atoms[i].position
+    #     for j in 1:3
+    #         dcell.atoms[i].position[j]=mod(ri[j]+cp[j],2*cp[j])-cp[j]
+    #     end
+    #     # dcell.atoms[i].position=(ltv2)*ltv*dcell.atoms[i].position
+    # end
+    apply_PBC!(dcell)
     update_rmat!(dcell)
     energy2=cell_energy(dcell,interaction)
     # println("E1=$energy1,E2=$energy2")
@@ -167,7 +169,28 @@ mutable struct Barostat
     Pv::Float64  # 压力浴动量 logVe or Ve depend on situation
 end
 
-
+function provide_cell(cell::UnitCell,dt::Float64)
+    cp=cell.copy
+    cpl=cell.lattice_vectors*cp
+    for atom in cell.atoms
+        vdt=atom.momentum/atom.mass*dt*2
+        if any(vdt.>cpl)
+            println("Error!The Vdt>the length of Box with atoms:$atom and Vdt:$(vdt)")
+        end
+    end
+end
+function provide_cell(bdc::BeadCell,dt::Float64)
+    for cell in bdc.cells
+    cp=cell.copy
+    cpl=cell.lattice_vectors*cp
+    for atom in cell.atoms
+        vdt=atom.momentum/atom.mass*dt*2
+        if any(vdt.>cpl)
+            println("Error!The Vdt>the length of Box with atoms:$atom and Vdt:$(vdt)")
+        end
+    end
+end
+end
 """
 计算dH/dz
 :param z: z=[r1...rn,Rt,Rv,p1,...pn,Pt,Pv]
@@ -252,6 +275,33 @@ function Hz(z::Vector{Float64},cell::UnitCell,interaction::AbstractInteraction,t
 end
 
 """
+Hz for NVT with Langevin Thermostat
+"""
+function Hz(z::Vector{Float64},cell::UnitCell,interaction::AbstractInteraction,Ts::Float64,t0::Float64,dt::Float64)
+    kb=8.617332385e-5 #eV/K
+    dim=3*length(cell.atoms)
+    Hz=zeros(dim*2)
+    natom=length(cell.atoms)
+    if 2*dim!=length(z)
+        throw("The dimension of z is not consist with the dimension of the system. z should be natom*3")
+    end
+    # @threads 
+    for i in 1:natom
+        atom=cell.atoms[i]
+        mi=atom.mass
+        sigma =2*sqrt(mi*kb*Ts/t0/dt)
+        Hz[3*i-2]=z[3*i-2+dim]/mi
+        Hz[3*i-1]=z[3*i-1+dim]/mi
+        Hz[3*i]=z[3*i+dim]/mi
+        fi=cell_forcei(cell,interaction,i)
+        Hz[dim+3*i-2]=fi[1]-z[dim+3*i-2]/t0+sigma*randn()
+        Hz[dim+3*i-1]=fi[2]-z[dim+3*i-1]/t0+sigma*randn()
+        Hz[dim+3*i]=fi[3]-z[dim+3*i]/t0+sigma*randn()
+    end
+    return Hz
+end
+
+"""
 Hz for NVE
 """
 function Hz(z::Vector{Float64},cell::UnitCell,interaction::AbstractInteraction)
@@ -294,6 +344,58 @@ function RK3_step!(z::Vector{Float64},dt::Float64,cell::UnitCell, interaction::A
     z.=z+(dt/6).*(k1.+4*k2.+k3)
     update_cell_NVE!(z,cell,interaction)
     updatezr!(z,cell)
+end 
+
+"""
+RK3 for NVT with Langevin thermostat(可靠性存疑)
+"""
+function RK3_step!(z::Vector{Float64},dt::Float64,cell::UnitCell, interaction::AbstractInteraction,Ts::Float64,t0::Float64)
+    dim=Int(length(z)/2)
+    k1=Hz(z,cell,interaction,Ts,t0,dt)
+    zr=z+(dt/2).*k1
+    update_cell_NVE!(zr,cell,interaction)
+    updatezr!(zr,cell)
+    k2=Hz(zr,cell,interaction,Ts,t0,dt)
+    zr.=z-dt.*k1+(2*dt).*k2
+    update_cell_NVE!(zr,cell,interaction)
+    updatezr!(zr,cell)
+    k3=Hz(zr,cell,interaction,Ts,t0,dt)
+    z.=z+(dt/6).*(k1.+4*k2.+k3)
+    update_cell_NVE!(z,cell,interaction)
+    updatezr!(z,cell)
+end 
+
+function LangevinVerlet_step!(dt::Float64,cell::UnitCell, interaction::AbstractInteraction,Ts::Float64,t0::Float64)
+    para=getpara()
+    kb=para["kb"]
+    invlt=inv(cell.lattice_vectors)
+    c1=exp(-dt/2/t0)
+    c2=sqrt(1-c1^2)
+    for atom in cell.atoms
+        mi=atom.mass
+        atom.momentum=c1*atom.momentum+c2*randn(3).*sqrt(mi*kb*Ts)
+    end
+    for i in eachindex(cell.atoms)
+        atom=cell.atoms[i]
+        mi=atom.mass
+        fi=cell_forcei(cell,interaction,i)
+        atom.position+=invlt*(atom.momentum*dt/mi+fi*dt^2/2/mi)
+        atom.momentum+=fi*dt/2
+    end
+    apply_PBC!(cell)
+    update_rmat!(cell)
+    update_fmat!(cell,interaction)
+
+    for i in eachindex(cell.atoms)
+        atom=cell.atoms[i]
+        fi=cell_forcei(cell,interaction,i)
+        atom.momentum+=fi*dt/2
+    end
+    for atom in cell.atoms
+        mi=atom.mass
+        atom.momentum=c1*atom.momentum+c2*randn(3).*sqrt(mi*kb*Ts)
+    end
+
 end 
 
 
@@ -409,15 +511,12 @@ function update_cell!(z::Vector{Float64},cell::UnitCell,interaction::AbstractInt
     cell.lattice_vectors=ltm
     cell.Volume=v
     invltv=inv(ltm)
-    a,b,c=cell.copy
     for i in 1:natom
         ri=invltv*rl[3*i-2:3*i]
-        ri[1]=mod(ri[1]+a,2*a)-a
-        ri[2]=mod(ri[2]+b,2*b)-b
-        ri[3]=mod(ri[3]+c,2*c)-c
         cell.atoms[i].position=ri
         cell.atoms[i].momentum=pl[3*i-2:3*i]
     end
+    apply_PBC!(cell)
     update_rmat!(cell)
     update_fmat!(cell,interaction)
 end
@@ -434,16 +533,14 @@ function update_cell_NVT!(z::Vector{Float64},cell::UnitCell,interaction::Abstrac
     natom=Int((length(z)-2)/6)
     rl=z[1:3*natom]
     pl=z[3*natom+2:6*natom+1]
-    a,b,c=cell.copy
     invltv=inv(cell.lattice_vectors)
     for i in 1:natom
         ri=invltv*rl[3*i-2:3*i]
-        ri[1]=mod(ri[1]+a,2*a)-a
-        ri[2]=mod(ri[2]+b,2*b)-b
-        ri[3]=mod(ri[3]+c,2*c)-c
         cell.atoms[i].position=ri
         cell.atoms[i].momentum=pl[3*i-2:3*i]
     end
+   
+    apply_PBC!(cell)
     update_rmat!(cell)
     update_fmat!(cell,interaction)
 end
@@ -457,12 +554,10 @@ function update_cell_NVE!(z::Vector{Float64},cell::UnitCell,interaction::Abstrac
     invltv=inv(cell.lattice_vectors)
     for i in 1:natom
         ri=invltv*rl[3*i-2:3*i]
-        ri[1]=mod(ri[1]+a,2*a)-a
-        ri[2]=mod(ri[2]+b,2*b)-b
-        ri[3]=mod(ri[3]+c,2*c)-c
         cell.atoms[i].position=ri
         cell.atoms[i].momentum=pl[3*i-2:3*i]
     end
+   
     update_rmat!(cell)
     update_fmat!(cell,interaction)
 end
@@ -759,12 +854,7 @@ function Andersen_Hoover_NPT_step!(cell::UnitCell,interaction::AbstractInteracti
         cell.atoms[i].momentum.+=dt2*fi
     end
     Nhcpisoint!(cell,interaction,thermostatchain,barostat,dt,nresn=nresn)
-    cp=cell.copy
-    for i in 1:natom 
-        for j in 1:3
-            cell.atoms[i].position[j]=mod(cell.atoms[i].position[j]+cp[j],2*cp[j])-cp[j]
-        end
-    end
+    apply_PBC!(cell)
     update_rmat!(cell)
     update_fmat!(cell,interaction)
     
@@ -780,7 +870,7 @@ Langvin Anderson方式控制NPT
 :parm gamma0: Float64
 :parm gammav: Float64
 :parm n: Int=4
-
+this is not surport for molecule with PBC yet
 Ref:Bereau, T. (2015). Multi-timestep Integrator for the Modified Andersen Barostat. Physics Procedia, 68, 7–15. https://doi.org/10.1016/j.phpro.2015.07.101
 """
 function LA_step!(fcell::UnitCell,interaction::AbstractInteraction,dt::Float64,T::Float64,barostat::Barostat,gamma0::Float64,gammav::Float64,n::Int=4)

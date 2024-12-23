@@ -12,7 +12,7 @@ using ..Model
 using StaticArrays
 using LinearAlgebra
 
-export TIP3P,getparatip3p,EOH,FOH,EHOH,FHOH,LJE,LJF,CoulombE,CoulombF
+export TIP3P,getparatip3p,EOH,FOH,EHOH,FHOH,LJE,LJF,CoulombE,CoulombF,getparaqSPC
 
 function getparatip3p()
     kk=0.0433634
@@ -30,9 +30,65 @@ function getparatip3p()
         "sigmaHH"=>0.4,
         "eO"=>-0.834,
         "eH"=>0.417,
-        "ctLJOO"=>2.0*3.15,
-        "ctLJHH"=>3.0*0.4,
-        "ctLJOH"=>1.78*2.0,
+        "ctLJOO"=>1.0*3.15,
+        "ctLJHH"=>1.0*0.4,
+        "ctLJOH"=>1.78*1.0,
+        "ctCoulomb"=>3.0, #A
+        "ct"=>4.0
+    )
+    
+end
+
+"""
+TOFIX:该势能参数存疑
+Ref:Paesani, F., Zhang, W., Case, D. A., Cheatham, T. E., & Voth, G. A. (2006). An accurate and simple quantum model for liquid water. The Journal of Chemical Physics, 125(18), 184507. https://doi.org/10.1063/1.2386157
+它的水分子theta0是112度，似乎是要考虑内部的相互作用的(?)，不能直接把参数扔到tip3p里面
+然后文中的参数表没有oH,HH的LJ，但是公式里面又有 ϵ_ij 所以OH是否存在LJ存疑
+"""
+function getparaqSPC()
+    kk=0.0433634
+    return Dict(
+        "kOH" => kk*1059.162,    # eV/A
+        "kHOH" => 75.90*kk,   # [m]/amu
+        "rOH" => 1.000,       # amu
+        "theta0" => 112.0*pi/180,      # GPa/[p]
+        "h" => 6.582119281e-4 ,     # eV*ps
+        "eOO"=>0.1554252*kk,
+        "sigmaOO"=>3.165492, #A
+        "eOH"=>0.0*kk,
+        "sigmaOH"=>1.7753,
+        "eHH"=>0.0*kk,
+        "sigmaHH"=>0.4,
+        "eO"=>−0.84,
+        "eH"=>0.42,
+        "ctLJOO"=>1.0*3.15,
+        "ctLJHH"=>1.0*0.4,
+        "ctLJOH"=>1.78*1.0,
+        "ctCoulomb"=>3.0, #A
+        "ct"=>4.0
+    )
+    
+end
+
+function getparatip3p()
+    kk=0.0433634
+    return Dict(
+        "kOH" => kk*450,    # eV/A
+        "kHOH" => 55.0*kk,   # [m]/amu
+        "rOH" => 0.9572,       # amu
+        "theta0" => 104.52*pi/180,      # GPa/[p]
+        "h" => 6.582119281e-4 ,     # eV*ps
+        "eOO"=>0.1521*kk,
+        "sigmaOO"=>3.1507, #A
+        "eOH"=>0.0836*kk,
+        "sigmaOH"=>1.7753,
+        "eHH"=>0.0460*kk,
+        "sigmaHH"=>0.4,
+        "eO"=>-0.834,
+        "eH"=>0.417,
+        "ctLJOO"=>1.0*3.15,
+        "ctLJHH"=>1.0*0.4,
+        "ctLJOH"=>1.78*1.0,
         "ctCoulomb"=>3.0, #A
         "ct"=>4.0
     )
@@ -124,8 +180,15 @@ end
 return the TIP3P Interactions
 you need to map molecule to a cell and get water(typeof Molecule) from it
 cutCoulomb is the cutoff of Coulomb Potential, if it is less than 0, the default value will be used.
+
+Also can use other paraments by change keyword para
 """
-function TIP3P(water::Molecule;cutCoulomb::Float64=-1.0)
+function TIP3P(water::Molecule;cutCoulomb::Float64=-1.0;para=nothing)
+    if para===nothing
+        paratip3p=getparatip3p()
+    else
+        paratip3p=para
+    end
     
     conOH=Vector{Vector{Int}}([])
     for cn in water.connection
@@ -133,7 +196,6 @@ function TIP3P(water::Molecule;cutCoulomb::Float64=-1.0)
         push!(conOH,[cn[1],cn[i]])
         end
     end
-    paratip3p=getparatip3p()
     bondOH=Bond(conOH,EOH,FOH)
     conHOH=water.connection
     natom= maximum(vcat(water.connection...))
@@ -142,16 +204,20 @@ function TIP3P(water::Molecule;cutCoulomb::Float64=-1.0)
 
     LJOO=Vector{Vector{Int}}([])
     LJOH=Vector{Vector{Int}}([])
-    LJHH=Vector{Vector{Int}}([])
-    CoulombOO=Vector{Vector{Int}}([])
-    CoulombOH=Vector{Vector{Int}}([])
-    CoulombHH=Vector{Vector{Int}}([])
+    LJHH=Vector{Vector{Int}}([]) 
+    """
+    !!!注意:
+    静电力也不计入分子内的相互作用，故对tip3p来说其邻居列表应与LJ相同
+    """
+    # CoulombOO=Vector{Vector{Int}}([])
+    # CoulombOH=Vector{Vector{Int}}([])
+    # CoulombHH=Vector{Vector{Int}}([])
     for i in 1:natom
         if i in Oid
             push!(LJOO,filter(x->x!=i,Oid))
             push!(LJOH,filter(x->(x!=i+1)&&(x!=i+2),Hid))
-            push!(CoulombOH,filter(x->x!=i,Hid))
-            push!(CoulombOO,filter(x->x!=i,Oid))
+            # push!(CoulombOH,filter(x->x!=i,Hid))
+            # push!(CoulombOO,filter(x->x!=i,Oid))
         else
             push!(LJOO,[])
             if mod(i,3)==2
@@ -161,8 +227,8 @@ function TIP3P(water::Molecule;cutCoulomb::Float64=-1.0)
                 push!(LJOH,filter(x->x!=i-2,Oid))
             end
 
-            push!(CoulombOH,Oid)
-            push!(CoulombOO,[])
+            # push!(CoulombOH,Oid)
+            # push!(CoulombOO,[])
         end
     end
 
@@ -175,13 +241,16 @@ function TIP3P(water::Molecule;cutCoulomb::Float64=-1.0)
             if mod(i,3)==0
                 push!(LJHH,filter(x->(x!=i)&&(x!=i-1),Hid))
             end
-            push!(CoulombHH,filter(x->x!=i,Hid))
+            # push!(CoulombHH,filter(x->x!=i,Hid))
         else
             push!(LJHH,[])
-            push!(CoulombHH,[])
+            # push!(CoulombHH,[])
         end
 
     end
+    CoulombHH=deepcopy(LJHH)
+    CoulombOH=deepcopy(LJOH)
+    CoulombOO=deepcopy(LJOO)
     # println(conOH)
     # println(conHOH)
     # println(Oid)
@@ -260,5 +329,7 @@ function TIP3P(water::Molecule;cutCoulomb::Float64=-1.0)
     # println(NeighborLJHH)
     return interactions
 end
+
+
 
 end

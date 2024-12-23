@@ -92,11 +92,35 @@ end
 function initBeadCell!(bdc::BeadCell,T::Float64=1.0)
     cm=Cmatk(bdc,T)
     bdc.cmat=cm
+
 end
 
+function initBeadCell!(bdc::BeadCell,interaction::AbstractInteraction,T::Float64=1.0)
+    cm=Cmatk(bdc,T)
+    bdc.cmat=cm
+    for cell in bdc.cells
+        update_rmat!(cell)
+        update_fmat!(cell,interaction)
+    end
+
+end
 """
 Map a UnitCell to BeadCell with copy to nbeads,r will give it a circle displacement
 """
+function map2bead(cell::UnitCell,interaction::AbstractInteraction,nbeads::Int,T=1.0;r=0.00)
+    cells=Vector{UnitCell}(undef,nbeads)
+    for i in 1:nbeads
+        celli=deepcopy(cell)
+        for k in eachindex(cell.atoms)
+            celli.atoms[k].position+=r*[sin(2*pi*i/nbeads),cos(2*pi*i/nbeads),0.0]
+        end
+        cells[i]=celli
+    end
+    bdc=BeadCell(cells)
+    initBeadCell!(bdc,interaction,T)
+    return bdc
+end
+
 function map2bead(cell::UnitCell,nbeads::Int,T=1.0;r=0.00)
     cells=Vector{UnitCell}(undef,nbeads)
     for i in 1:nbeads
@@ -110,6 +134,7 @@ function map2bead(cell::UnitCell,nbeads::Int,T=1.0;r=0.00)
     initBeadCell!(bdc,T)
     return bdc
 end
+
 
 
 function updateBeadCell!(bdc::BeadCell,pl::Matrix{Float64},ql::Matrix{Float64})
@@ -262,7 +287,7 @@ end
 """
 return the kinetic energy of bead cell by calculate veri term
 """
-function cell_Ek(bdc::BeadCell,interactions::AbstractInteraction,Ts::Float64)
+function cell_Ek(bdc::BeadCell,interactions::AbstractInteraction,args...)
     para=getpara()
     kb=para["kb"]
     Ek0=0.0
@@ -286,6 +311,15 @@ function cell_Ek(bdc::BeadCell,interactions::AbstractInteraction,Ts::Float64)
     # Ek1=1.5*natom*kb*Ts
     # return 3*natom*kb*Ts/2+Ek0/2/N
     return Ek1+Ek0/2/N
+    
+end
+
+function cell_Ek(cell::UnitCell,args...)
+    Ek=0.0
+    for atom in cell.atoms
+        Ek+=0.5*norm(atom.momentum)^2/atom.mass
+    end
+    return Ek
     
 end
 
@@ -338,31 +372,68 @@ end
 apply PBC on bead cell,this will depend on the center of the Ring
 """
 function apply_PBC_BDC!(bdc::BeadCell,interactions::AbstractInteraction)
-    cpc=bdc.cells[1].copy
-    pl,ql=get_bead_z0(bdc)
-    qlm=Statistics.mean(ql[2:end,:],dims=1)
-    for i in 1:length(bdc.cells[1].atoms)
-            for k in 1:3
-                if qlm[3i-3+k]>cpc[k]
-                    ql[:,3i-3+k].-=2*cpc[k]
-                elseif qlm[3i-3+k]<-cpc[k]
-                    ql[:,3i-3+k].+=2*cpc[k]
-                end
+    if  length(bdc.cells[1].molecule.atoms)==0
+        cpc=bdc.cells[1].copy
+        pl,ql=get_bead_z0(bdc)
+        qlm=Statistics.mean(ql[2:end,:],dims=1)
+        for i in 1:length(bdc.cells[1].atoms)
+                for k in 1:3
+                    if qlm[3i-3+k]>cpc[k]
+                        ql[:,3i-3+k].-=2*cpc[k]
+                    elseif qlm[3i-3+k]<-cpc[k]
+                        ql[:,3i-3+k].+=2*cpc[k]
+                    end
+            end
         end
-    end
-    updateBeadCell0!(bdc,pl,ql)
-    for cell in bdc.cells
-        update_rmat!(cell)
-        update_fmat!(cell,interactions)
-    end
+        updateBeadCell0!(bdc,pl,ql)
+    
+
+
+        else
+            pl,ql=get_bead_z0(bdc)
+            qlm=Statistics.mean(ql[2:end,:],dims=1)
+            a,b,c=bdc.cells[1].copy
+            for cn in bdc.cells[1].molecule.connection
+                ct=cn[1]
+                rct=qlm[ct*3-2:ct*3]
+                ix,iy,iz=0,0,0
+                if rct[1]>a
+                    ix=1
+                end
+                if rct[1]<-a
+                    ix=-1
+                end
+                if rct[2]>b
+                    iy=1
+                end
+                if rct[2]<-b
+                    iy=-1
+                end
+                if rct[3]>c
+                    iz=1
+                end
+                if rct[3]<-c
+                    iz=-1
+                end
+                for pb in 1:length(cn)
+                    for cell in bdc.cells
+                        r=cell.atoms[pb].position
+                        r[1]=r[1]-ix*2*a
+                        r[2]=r[2]-iy*2*b
+                        r[3]=r[3]-iz*2*c
+                        cell.atoms[pb].position=r
+                    end
+                end
+            end
+        end
+        for cell in bdc.cells
+            update_rmat!(cell)
+            update_fmat!(cell,interactions)
+        end
+    
 end
 
-#TOFIX:这里实现有问题，要以氧原子质心坐标为准
-function apply_PBC_BDC!(bdc::BeadCell,interactions::AbstractInteraction,molecule::Molecule)
-    for cell in bdc.cells
-        apply_PBC!(cell,interactions,molecule)
-    end
-end
+
 
 
 

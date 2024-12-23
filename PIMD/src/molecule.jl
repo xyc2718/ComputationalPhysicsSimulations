@@ -25,6 +25,7 @@ function mapCell2Molecue(cell::UnitCell, molecule::Molecule)
     mcell.fmat=Vector{SVector{3,Float64}}(undef,length(mcell.atoms))
     mcell.rmat=Matrix{SVector{3,Float64}}(undef,length(mcell.atoms),length(mcell.atoms))
     mol=Molecule(connection,molecule.atoms)
+    mcell.molecule=mol
     return mcell,mol
 
 end

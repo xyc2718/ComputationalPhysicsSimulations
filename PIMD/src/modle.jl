@@ -59,7 +59,12 @@ mutable struct Atom
     end
 end
 
+struct Molecule
+    connection::Vector{Vector{Int}}
+    atoms::Vector{Atom}
+end
 
+default_molecule=Molecule(Vector{Vector{Int}}([[]]),Vector{Atom}([]))
 
 """
 晶胞类型
@@ -77,19 +82,20 @@ mutable struct UnitCell <: AbstractCell
     ifrmat::Bool
     fmat::Vector{SVector{3,Float64}}
     iffmat::Bool
+    molecule::Molecule
     function UnitCell(lattice_vectors::Matrix{Float64}, atoms::Vector{Atom}, copy::Vector{Int})
         # println(copy[1]*copy[2]*copy[3])
         # println(det(lattice_vectors))
         v=copy[1]*copy[2]*copy[3]*det(lattice_vectors)*8
-        new(lattice_vectors, atoms,copy,v,Matrix{SVector{3,Float64}}(undef,length(atoms),length(atoms)),false,Vector{SVector{3,Float64}}(undef,length(atoms)),false)
+        new(lattice_vectors, atoms,copy,v,Matrix{SVector{3,Float64}}(undef,length(atoms),length(atoms)),false,Vector{SVector{3,Float64}}(undef,length(atoms)),false,default_molecule)
     end
     function UnitCell(lattice_vectors::Matrix{Float64}, atoms::Vector{Atom})
         v=det(lattice_vectors)*8
-        new(lattice_vectors, atoms, Vector([1,1,1]),v,Matrix{SVector{3,Float64}}(undef,length(atoms),length(atoms)),false,Vector{SVector{3,Float64}}(undef,length(atoms)),false)
+        new(lattice_vectors, atoms, Vector([1,1,1]),v,Matrix{SVector{3,Float64}}(undef,length(atoms),length(atoms)),false,Vector{SVector{3,Float64}}(undef,length(atoms)),false,default_molecule)
     end
     function UnitCell(lattice_vectors::Adjoint{Float64, Matrix{Float64}}, atoms::Vector{Atom})
         v=det(lattice_vectors)*8
-        new(lattice_vectors, atoms, Vector([1,1,1]),v,Matrix{SVector{3,Float64}}(undef,length(atoms),length(atoms)),false,Vector{SVector{3,Float64}}(undef,length(atoms)),false)
+        new(lattice_vectors, atoms, Vector([1,1,1]),v,Matrix{SVector{3,Float64}}(undef,length(atoms),length(atoms)),false,Vector{SVector{3,Float64}}(undef,length(atoms)),false,default_molecule)
     end
 end
 
@@ -521,7 +527,7 @@ function update_fmat!(cell::UnitCell,interactions::Interactions)
     for k in eachindex(interactions.interactions)
         interaction=interactions.interactions[k]
         if interaction.type=="Bond"
-            Threads.@threads  for cn in interaction.connection
+         for cn in interaction.connection
                 i=cn[1]
                 j=cn[2]
                 rij=getrij(cell,i,j)
@@ -975,6 +981,7 @@ end
 
 
 function apply_PBC!(cell::UnitCell)
+    if length(cell.molecule.atoms)==0
     a,b,c=cell.copy
     for i in eachindex(cell.atoms)
         for k in 1:3
@@ -986,25 +993,9 @@ function apply_PBC!(cell::UnitCell)
         end
     
     end
-
-end
-
-function apply_PBC!(cell::UnitCell,interaction::AbstractInteraction)
-    apply_PBC!(cell)
-    update_rmat!(cell)
-    update_fmat!(cell,interaction)
-end
-
-
-
-struct Molecule
-    connection::Vector{Vector{Int}}
-    atoms::Vector{Atom}
-end
-
-function apply_PBC!(cell::UnitCell,molecule::Molecule)
-    a,b,c=cell.copy
-    for cn in molecule.connection
+    else
+        a,b,c=cell.copy
+    for cn in cell.molecule.connection
         ct=cn[1]
         rct=cell.atoms[ct].position
         ix,iy,iz=0,0,0
@@ -1034,29 +1025,18 @@ function apply_PBC!(cell::UnitCell,molecule::Molecule)
             cell.atoms[pb].position=r
         end
     end
+    end
+
 end
 
-function apply_PBC!(cell::UnitCell,interaction::AbstractInteraction,molecule::Molecule)
-    apply_PBC!(cell,molecule)
+function apply_PBC!(cell::UnitCell,interaction::AbstractInteraction)
+    apply_PBC!(cell)
     update_rmat!(cell)
     update_fmat!(cell,interaction)
 end
 
 
 
-
-
-
-function set_lattice_vector!(cell::UnitCell,lt::Matrix{Float64},interaction::AbstractInteraction)
-    lt0=cell.lattice_vectors
-    cell.lattice_vectors=lt
-    invlt=inv(lt)
-    for i in eachindex(cell.atoms)
-        cell.atoms[i].position=invlt*lt0*cell.atoms[i].position
-    end
-    apply_PBC!(cell,interaction)
-    cell.Volume=det(lt)*cell.copy[1]*cell.copy[2]*cell.copy[3]*8
-end
 
 
 """
