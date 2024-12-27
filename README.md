@@ -22,3 +22,20 @@ Different MD simulation method for NPT and NVT are implemented in MD.jl
     Nose-Hoover method:Intergrate by 3 order Runge Kuta 
 
 multi-threaded force computation is implemented on the CPU.
+
+###  The Nuclear Quantum Effects of Water
+We calculate the Zero-Point Energy,Tunneling,Vibrational Spectrum,Infrared Spectrum on Water molecule
+
+This part extends the program from the first task，include:
+
+* Supported molecular structures and the interaction of multiple force fields and external potential fields.
+* TIP3P Potential For Water Model
+* PIMD with Thermostat PILE-L
+* Kinetic energy estimation in PIMD
+* Statistics of RDF and Particle Occurrence Probability
+  
+(There are still some issues with the calculation of infrared and vibrational spectra,so for now, I am using i-pi to handle the spectral calculations.)
+
+
+
+
