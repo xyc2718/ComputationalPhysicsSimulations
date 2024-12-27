@@ -30,10 +30,10 @@ function getparatip3p()
         "sigmaHH"=>0.4,
         "eO"=>-0.834,
         "eH"=>0.417,
-        "ctLJOO"=>1.0*3.15,
-        "ctLJHH"=>1.0*0.4,
-        "ctLJOH"=>1.78*1.0,
-        "ctCoulomb"=>3.0, #A
+        "ctLJOO"=>4.0,
+        "ctLJHH"=>3.0*0.4,
+        "ctLJOH"=>1.78*2.0,
+        "ctCoulomb"=>4.0, #A
         "ct"=>4.0
     )
     
@@ -59,11 +59,11 @@ function getparaqSPC()
         "sigmaOH"=>1.7753,
         "eHH"=>0.0*kk,
         "sigmaHH"=>0.4,
-        "eO"=>−0.84,
+        "eO"=>-0.84,
         "eH"=>0.42,
-        "ctLJOO"=>1.0*3.15,
-        "ctLJHH"=>1.0*0.4,
-        "ctLJOH"=>1.78*1.0,
+        "ctLJOO"=>2.0*3.15,
+        "ctLJHH"=>3.0*0.4,
+        "ctLJOH"=>1.78*2.0,
         "ctCoulomb"=>3.0, #A
         "ct"=>4.0
     )
@@ -183,7 +183,7 @@ cutCoulomb is the cutoff of Coulomb Potential, if it is less than 0, the default
 
 Also can use other paraments by change keyword para
 """
-function TIP3P(water::Molecule;cutCoulomb::Float64=-1.0;para=nothing)
+function TIP3P(water::Molecule;cutCoulomb::Float64=-1.0,para=nothing)
     if para===nothing
         paratip3p=getparatip3p()
     else

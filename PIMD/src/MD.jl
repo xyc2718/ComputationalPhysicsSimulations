@@ -557,7 +557,7 @@ function update_cell_NVE!(z::Vector{Float64},cell::UnitCell,interaction::Abstrac
         cell.atoms[i].position=ri
         cell.atoms[i].momentum=pl[3*i-2:3*i]
     end
-   
+    apply_PBC!(cell)
     update_rmat!(cell)
     update_fmat!(cell,interaction)
 end

@@ -245,6 +245,35 @@ function pimdLgammaStep!(bdc::BeadCell,dt::Float64,T::Float64=1.0;t0::Float64=0.
     updateBeadCell!(bdc,pl,ql)
 end
 
+#TODO
+# """
+# gle thermostat on:Ceriotti, M., Parrinello, M., Markland, T. E., & Manolopoulos, D. E. (2010). Efficient stochastic thermostatting of path integral molecular dynamics. The Journal of Chemical Physics, 133(12), 124104. https://doi.org/10.1063/1.3489925
+# """
+# function gleLgammaStep!(bdc::BeadCell,dt::Float64,T::Float64=1.0;t0::Float64=0.1,Ns::Int=5,A::SMatrix{Float64,NS+1,Ns+1})
+#     para=getpara()
+#     kb=para["kb"]
+#     h=para["h"]
+#     N=bdc.nbeads
+#     m = [atom.mass for atom in bdc.cells[1].atoms for _ in 1:3]
+#     gamma=A/2/t0
+#     gammaT=transpose(gamma)
+#     xm=(-dt/2).*gammaT
+#     I = Matrix{Float64}(I, 3, 3)
+#     C1=(I+xm++1/2*xm*xm+1/6*xm*xm*xm+1/12*xm*xm*xm*xm)
+#     C2=()
+#     natom=length(bdc.cells[1].atoms)
+#     betan=1/N/kb/T
+#     wn=1.0/h/betan
+#     C2= cholesky(I-C1*transpose(C1)).L
+#     for cell in bec.cells
+#         for atom in cell.atoms
+#     end
+  
+# end
+
+
+
+
 """
 L for V(q) evolution
 """
@@ -287,7 +316,7 @@ end
 """
 return the kinetic energy of bead cell by calculate veri term
 """
-function cell_Ek(bdc::BeadCell,interactions::AbstractInteraction,args...)
+function cell_Ek(bdc::BeadCell,interactions::AbstractInteraction,Ts::Float64)
     para=getpara()
     kb=para["kb"]
     Ek0=0.0
@@ -307,8 +336,8 @@ function cell_Ek(bdc::BeadCell,interactions::AbstractInteraction,args...)
         end        
     end
     m=repeat(mc',N,1)
-    Ek1=0.5*Statistics.mean((pl[2:end,:].^2)./m)/N
-    # Ek1=1.5*natom*kb*Ts
+    # Ek1=0.5*sum((pl[2:end,:].^2)./m)/N/N
+    Ek1=1.5*natom*kb*Ts
     # return 3*natom*kb*Ts/2+Ek0/2/N
     return Ek1+Ek0/2/N
     
@@ -415,7 +444,7 @@ function apply_PBC_BDC!(bdc::BeadCell,interactions::AbstractInteraction)
                 if rct[3]<-c
                     iz=-1
                 end
-                for pb in 1:length(cn)
+                for pb in cn
                     for cell in bdc.cells
                         r=cell.atoms[pb].position
                         r[1]=r[1]-ix*2*a

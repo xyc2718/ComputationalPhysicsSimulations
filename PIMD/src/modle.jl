@@ -9,7 +9,7 @@ using StaticArrays
 using LinearAlgebra
 using Base.Threads
 using IterTools
-export Atom, UnitCell, copycell,  Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,filtercell,cell_forceij!,cell_forcei!,force_tensor!,cell_temp,Ngradient0,getrij,is_diagonal_matrix,Embedding,dUdhij,randcell!,Force_Tensor,getrij0,update_rmat!,update_rmati!,update_fmat!,cell_forcei0,set_lattice_vector!,apply_PBC!,SW,Interactions,AbstractInteraction,Neighbor,AbstractCell,BeadCell,getpara,Angle,Bond,Molecule
+export Atom, UnitCell, copycell,  Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,filtercell,cell_forceij!,cell_forcei!,force_tensor!,cell_temp,Ngradient0,getrij,is_diagonal_matrix,Embedding,dUdhij,randcell!,Force_Tensor,getrij0,update_rmat!,update_rmati!,update_fmat!,cell_forcei0,set_lattice_vector!,apply_PBC!,SW,Interactions,AbstractInteraction,Neighbor,AbstractCell,BeadCell,getpara,Angle,Bond,Molecule,Field,get_position,get_position0,get_velocity,get_natom
 global const kb=8.617332385e-5 #eV/K
 
 function getpara()
@@ -19,7 +19,8 @@ function getpara()
         "MAl" => 26.9815385,       # amu
         "P00" => 160.2176565,      # GPa/[p]
         "h" => 6.582119281e-4 ,     # eV*ps
-        "K"=>14.39964485        #eV*A/e^2
+        "K"=>14.39964485,       #eV*A/e^2
+        "a0"=>0.529177210903 #A/au
     )
 end
 
@@ -440,6 +441,15 @@ struct Interaction{F1, F2, F3, F4} <: AbstractInteraction
         end
 end
 
+struct Field{F1,F2} <:AbstractInteraction
+    energy::F1  # 势能函数
+    force::F2   # 力函数
+    type::String 
+    function Field(energy::F1, force::F2) where {F1, F2}
+        new{F1,F2}(energy, force,"Field")
+    end
+
+end
 
 mutable struct Neighbor
     neighborlist::Vector{Vector{Int}}
@@ -643,10 +653,10 @@ for k in eachindex(interactions.interactions)
                         end
                     end
                 end
-                if i==j
-                    println("i==j")
-                    energy=interaction.cutenergy(norm(ltv*cell.atoms[i].position))
-                end
+                # if i==j
+                #     println("i==j")
+                #     energy=interaction.cutenergy(norm(ltv*cell.atoms[i].position))
+                # end
                 # println("i=$i,j=$j,E=$energy")
         end
     catch
@@ -708,8 +718,6 @@ function cell_energy(cell::UnitCell,interactions::Interactions;ifnormalize::Bool
     end
 
 
-
-
     Ere=energy
     for k in eachindex(interactions.interactions)
         interaction=interactions.interactions[k]
@@ -737,6 +745,12 @@ function cell_energy(cell::UnitCell,interactions::Interactions;ifnormalize::Bool
                 j=cn[2]
                 k=cn[3]
                 Ere+=interaction.energy(getrij(cell,i,j),getrij(cell,i,k))
+            end
+        end
+        if interaction.type=="Field"
+            ltv=cell.lattice_vectors
+            for atom in cell.atoms
+                Ere+=interaction.energy(SVector{3,Float64}(ltv*atom.position))
             end
         end
 
@@ -834,9 +848,9 @@ function cell_forcei0(cell::UnitCell,interactions::Interactions,i::Int)::SVector
                     forcei+=cell_forceij(cell,interaction,i,j)
                     # println("k=$k,i=$i,j=$j,force=$forcei,df=$(cell_forceij(cell,interaction,i,j))")
                 end
-                if i==j
-                    forcei+=interaction.cutforce(SVector{3,Float64}(ltv*cell.atoms[i].position))
-                end
+                # if i==j
+                #     forcei+=interaction.cutforce(SVector{3,Float64}(ltv*cell.atoms[i].position))
+                # end
             end
             if interaction.embedding.ifembedding
                 # forcei.-=Ngradient0(cell,i,interaction.embedding.embedding_energy,[])
@@ -847,6 +861,9 @@ function cell_forcei0(cell::UnitCell,interactions::Interactions,i::Int)::SVector
                 forcei+=interaction.sw.SW_force(cell,i)
             end
         end
+       if interaction.type=="Field"
+            forcei+=interaction.force(SVector{3,Float64}(ltv*cell.atoms[i].position))
+       end
     end
 
 
@@ -1017,7 +1034,7 @@ function apply_PBC!(cell::UnitCell)
         if rct[3]<-c
             iz=-1
         end
-        for pb in 1:length(cn)
+        for pb in cn
             r=cell.atoms[pb].position
             r[1]=r[1]-ix*2*a
             r[2]=r[2]-iy*2*b
@@ -1070,6 +1087,45 @@ function cell_temp(bdc::BeadCell)
         temp+=cell_temp(bdc.cells[i])
     end
     return temp/N
+end
+
+function get_position0(cell::UnitCell,i::Int)
+    return cell.atoms[i].position
+end
+
+function get_position0(bdc::BeadCell,i::Int)
+    rm=zeros(3)
+    for j in 1:length(bdc.cells)
+        rm+=get_position0(bdc.cells[j],i)
+    end
+    return rm./bdc.nbeads
+end
+
+function get_position(cell::UnitCell,i::Int)
+    return cell.lattice_vectors*get_position0(cell,i)
+end
+
+function get_position(bdc::BeadCell,i::Int)
+    return bdc.cells[1].lattice_vectors*get_position0(bdc,i)
+end
+
+function get_velocity(cell::UnitCell,i::Int)
+    return cell.atoms[i].momentum./(cell.atoms[i].mass)
+end
+function get_velocity(bdc::BeadCell,i::Int)
+    vm=zeros(3)
+    for j in 1:length(bdc.cells)
+        vm+=get_velocity(bdc.cells[j],i)
+    end
+    return vm./bdc.nbeads
+end
+
+function get_natom(cell::UnitCell)
+    return length(cell.atoms)
+end
+
+function get_natom(bdc::BeadCell)
+    return length(bdc.cells[1].atoms)
 end
 
 

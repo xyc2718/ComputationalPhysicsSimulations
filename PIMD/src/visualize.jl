@@ -7,7 +7,7 @@ using LinearAlgebra
 using Printf
 using JSON
 using StaticArrays
-export visualize_unitcell_atoms,visualize_unitcell_atoms0,matrix_to_latex,read_json,read_config,visualize_beadcell,calculate_gr!,DataProcessor,RadialDistribution,Normalize_gr!
+export visualize_unitcell_atoms,visualize_unitcell_atoms0,matrix_to_latex,read_json,read_config,visualize_beadcell,calculate_gr!,DataProcessor,RadialDistribution,Normalize_gr!,SpatialDistribution,calculate_pr!,Normalize_pr!,Trajectory,calculate_traj!,fix_traj!
 
 
 # 定义一个颜色映射函数
@@ -260,5 +260,114 @@ function Normalize_gr!(gr::RadialDistribution)
     gr.ngr=gr.gr/n
 end
 
+
+mutable struct SpatialDistribution<:DataProcessor
+    type::String
+    lattice_vectors::Matrix{Float64}
+    rmin::Vector{Float64}
+    rmax::Vector{Float64}
+    nx::Int
+    ny::Int
+    nz::Int
+    dx::Float64
+    dy::Float64
+    dz::Float64
+    xl::Vector{Float64}
+    yl::Vector{Float64}
+    zl::Vector{Float64}
+    xm::Vector{Float64}
+    ym::Vector{Float64}
+    zm::Vector{Float64}
+    pr::Array{Float64, 3}
+    npr::Array{Float64, 3}
+    function SpatialDistribution(cell::UnitCell,nx::Int,ny::Int,nz::Int;rmin::Vector{Float64}=[-1.0,-1.0,-1.0],rmax::Vector{Float64}=[1.0,1.0,1.0])
+        xmin,ymin,zmin=rmin
+        xmax,ymax,zmax=rmax
+        dx=(xmax-xmin)/nx
+        dy=(ymax-ymin)/ny
+        dz=(zmax-zmin)/nz
+        if nx==1
+            xl=[xmin]
+        else    
+        xl=range(xmin,stop=xmax,length=nx)
+        end
+        
+        if ny==1
+            yl=[ymin]
+        else
+            yl=range(ymin,stop=ymax,length=ny)
+        end
+        if nz==1
+            zl=[zmin]
+        else
+            zl=range(zmin,stop=zmax,length=nz)
+        end
+        xm=xl.+dx/2
+        ym=yl.+dy/2
+        zm=zl.+dz/2
+        pr=zeros(nx,ny,nz)
+        npr=zeros(nx,ny,nz)
+        new("SpatialDistribution",cell.lattice_vectors,rmin,rmax,nx,ny,nz,dx,dy,dz,xl,yl,zl,xm,ym,zm,pr,npr)
+    end
+    function SpatialDistribution(bdc::BeadCell,nx::Int,ny::Int,nz::Int)
+        SpatialDistribution(bdc.cells[1],nx,ny,nz)
+    end
+end
+
+function calculate_pr!(pr::SpatialDistribution,cell::AbstractCell)
+    xmin,ymin,zmin=pr.rmin
+    natom=get_natom(cell)
+    for i in 1:natom
+            ri=get_position0(cell,i)
+            if all(ri.<pr.rmax)&&all(ri.>pr.rmin)
+                ix=Int(floor((ri[1]-xmin)/pr.dx))+1
+                iy=Int(floor((ri[2]-ymin)/pr.dy))+1
+                iz=Int(floor((ri[3]-zmin)/pr.dz))+1
+                # println("iy=$iy,ri=$ri,ymin=$ymin")
+                pr.pr[ix,iy,iz]+=1
+            end
+    end
+end
+
+function Normalize_pr!(pr::SpatialDistribution)
+    n=(sum(pr.pr)*pr.dx*pr.dy*pr.dz)
+    pr.npr=pr.pr/n
+end
+
+mutable struct Trajectory<:DataProcessor
+    type::String
+    rl::Matrix{Float64}
+    vl::Matrix{Float64}
+    maxstep::Int
+    dt::Float64
+    t::Int
+    function Trajectory(maxstep::Int,dt::Float64=1.0)
+        rl=zeros(3,maxstep)
+        vl=zeros(3,maxstep)
+        new("Trajectory",rl,vl,maxstep,dt,1)
+    end
+    function Trajectory(beginstep::Int,endstep::Int,samplesequence::Int,dt::Float64=1.0)
+        maxstep=Int(floor((endstep-beginstep)/samplesequence))+1
+        rl=zeros(3,maxstep)
+        vl=zeros(3,maxstep)
+        new("Trajectory",rl,vl,maxstep,dt*samplesequence,1)
+    end
+end
+
+function calculate_traj!(tr::Trajectory,cell::AbstractCell,i::Int)
+    # println(tr.t)
+    tr.rl[:,tr.t].=get_position(cell,i)
+    tr.vl[:,tr.t].=get_velocity(cell,i) 
+    tr.t+=1
+end
+
+
+function fix_traj!(trl::Vector{Trajectory},cell::AbstractCell)
+    natom=get_natom(cell)
+    for i in 1:natom
+        calculate_traj!(trl[i],cell,i)
+    end
+    
+end
 
 end
