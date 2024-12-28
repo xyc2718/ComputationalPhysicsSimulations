@@ -4,8 +4,8 @@ https://docs.lammps.org/Howto_tip3p.html
 
 As Coulomb Potential is Long Range, we need to use Ewald Summation OR PPPM Grid to calculate it in Periodic Boundary Condition.
 The Ewald Simulation is not implemented in this code yet.
-So the Energy of NVE ensemble is not conserved and will increase withh PPP.
-You need to selcet a good cutoff of Coulomb Potential when simmulate in NVT/NVE ensemble.The Defalut cutoff is 3.0A.
+So the Energy of NVE ensemble is not conserved with PPP if the cutoff is longer than half of the box.
+You need to selcet a good cutoff of Coulomb Potential when simmulate in NVT/NVE ensemble.The Defalut cutoff for Coulomb is 4.0A.
 """
 module WaterModel
 using ..Model
@@ -70,30 +70,7 @@ function getparaqSPC()
     
 end
 
-function getparatip3p()
-    kk=0.0433634
-    return Dict(
-        "kOH" => kk*450,    # eV/A
-        "kHOH" => 55.0*kk,   # [m]/amu
-        "rOH" => 0.9572,       # amu
-        "theta0" => 104.52*pi/180,      # GPa/[p]
-        "h" => 6.582119281e-4 ,     # eV*ps
-        "eOO"=>0.1521*kk,
-        "sigmaOO"=>3.1507, #A
-        "eOH"=>0.0836*kk,
-        "sigmaOH"=>1.7753,
-        "eHH"=>0.0460*kk,
-        "sigmaHH"=>0.4,
-        "eO"=>-0.834,
-        "eH"=>0.417,
-        "ctLJOO"=>1.0*3.15,
-        "ctLJHH"=>1.0*0.4,
-        "ctLJOH"=>1.78*1.0,
-        "ctCoulomb"=>3.0, #A
-        "ct"=>4.0
-    )
-    
-end
+
 
 function EOH(r::SVector{3,Float64})
     pare=getparatip3p()
