@@ -40,7 +40,7 @@ function getparatip3p()
 end
 
 """
-TOFIX:该势能参数存疑
+FIXME:该势能参数存疑
 Ref:Paesani, F., Zhang, W., Case, D. A., Cheatham, T. E., & Voth, G. A. (2006). An accurate and simple quantum model for liquid water. The Journal of Chemical Physics, 125(18), 184507. https://doi.org/10.1063/1.2386157
 它的水分子theta0是112度，似乎是要考虑内部的相互作用的(?)，不能直接把参数扔到tip3p里面
 然后文中的参数表没有oH,HH的LJ，但是公式里面又有 ϵ_ij 所以OH是否存在LJ存疑
@@ -304,6 +304,7 @@ function TIP3P(water::Molecule;cutCoulomb::Float64=-1.0,para=nothing)
     # println(interCoulombOO.cutoff)
     # println(NeighborCoulombOO)
     # println(NeighborLJHH)
+    println("Initialized with TIP3P Interactions with cutoff $cutCoulomb,\n parameters:$paratip3p")
     return interactions
 end
 

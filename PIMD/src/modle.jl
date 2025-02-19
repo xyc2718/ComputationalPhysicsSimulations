@@ -9,7 +9,7 @@ using StaticArrays
 using LinearAlgebra
 using Base.Threads
 using IterTools
-export Atom, UnitCell, copycell,  Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,filtercell,cell_forceij!,cell_forcei!,force_tensor!,cell_temp,Ngradient0,getrij,is_diagonal_matrix,Embedding,dUdhij,randcell!,Force_Tensor,getrij0,update_rmat!,update_rmati!,update_fmat!,cell_forcei0,set_lattice_vector!,apply_PBC!,SW,Interactions,AbstractInteraction,Neighbor,AbstractCell,BeadCell,getpara,Angle,Bond,Molecule,Field,get_position,get_position0,get_velocity,get_natom
+export Atom, UnitCell, copycell,  Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,filtercell,cell_forceij!,cell_forcei!,force_tensor!,cell_temp,Ngradient0,getrij,is_diagonal_matrix,Embedding,dUdhij,randcell!,Force_Tensor,getrij0,update_rmat!,update_rmati!,update_fmat!,cell_forcei0,set_lattice_vector!,apply_PBC!,SW,Interactions,AbstractInteraction,Neighbor,AbstractCell,BeadCell,getpara,Angle,Bond,Molecule,Field,get_position,get_position0,get_velocity,get_natom,MutableField
 global const kb=8.617332385e-5 #eV/K
 
 function getpara()
@@ -23,6 +23,18 @@ function getpara()
         "a0"=>0.529177210903 #A/au
     )
 end
+
+# function getpara()
+#     return Dict(
+#         "kb" => 1.0,    
+#         "amuM" => 1.0,   
+#         "MAl" => 1.0,      
+#         "P00" => 1.0,     
+#         "h" => 1.0 ,    
+#         "K"=>1.0,      
+#         "a0"=>1.0 
+#     )
+# end
 
 abstract type AbstractInteraction end
 
@@ -448,7 +460,16 @@ struct Field{F1,F2} <:AbstractInteraction
     function Field(energy::F1, force::F2) where {F1, F2}
         new{F1,F2}(energy, force,"Field")
     end
+end
 
+mutable struct MutableField{F1,F2} <:AbstractInteraction
+    energy::F1  # 势能函数
+    force::F2   # 力函数
+    t::Float64
+    type::String 
+    function MutableField(energy::F1, force::F2,t0::Float64=0.0) where {F1, F2}
+        new{F1,F2}(energy, force,t0,"MutableField")
+    end
 end
 
 mutable struct Neighbor
@@ -753,6 +774,12 @@ function cell_energy(cell::UnitCell,interactions::Interactions;ifnormalize::Bool
                 Ere+=interaction.energy(SVector{3,Float64}(ltv*atom.position))
             end
         end
+        if interaction.type=="MutableField"
+            ltv=cell.lattice_vectors
+            for atom in cell.atoms
+                Ere+=interaction.energy(SVector{3,Float64}(ltv*atom.position),interaction.t)
+            end
+        end
 
     end
 
@@ -863,6 +890,9 @@ function cell_forcei0(cell::UnitCell,interactions::Interactions,i::Int)::SVector
         end
        if interaction.type=="Field"
             forcei+=interaction.force(SVector{3,Float64}(ltv*cell.atoms[i].position))
+       end
+       if interaction.type=="MutableField"
+        forcei+=interaction.force(SVector{3,Float64}(ltv*cell.atoms[i].position),interaction.t)
        end
     end
 
