@@ -19,7 +19,7 @@ kb=8.617332385e-5 #eV/K
 amuM=1.03642701e-4 #[m]/amu
 MAl=26.9815385 #amu
 P00=160.2176565 #Gpa/[p]
-lattice_constant =25.0 #A
+lattice_constant =20.0 #A
 
 #HCP
 lattice_vectors = collect((Matrix([
@@ -70,7 +70,7 @@ Tb=Ts
 Pb=Ps
 maxstep=10000
 dumpsequence=1
-dumpcellsequence=1000
+dumpcellsequence=100
 beginsamplestep=1
 printsequence=100
 TQ=5

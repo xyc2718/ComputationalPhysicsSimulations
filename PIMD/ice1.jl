@@ -18,7 +18,7 @@ kb=8.617332385e-5 #eV/K
 amuM=1.03642701e-4 #[m]/amu
 MAl=26.9815385 #amu
 P00=160.2176565 #Gpa/[p]
-lattice_constant =4.20 #A
+lattice_constant =6.1229 #A
 
 #HCP
 lattice_vectors = collect((Matrix([
@@ -34,6 +34,31 @@ atom_positions = [
     Vector([0.5, 0.833, 0.5])           # 原子 4
 ]
 
+filename = "h2o-32.xyz"  # 替换为实际文件名
+lines = readlines(filename)
+
+# 初始化存储
+atom_data = Vector{Vector{Float64}}([])  # 存储原子类型和坐标的数组
+
+# 解析每一行
+for line in lines
+    # 跳过注释行和空行
+    if startswith(line, "#") || isempty(strip(line))
+        continue
+    end
+    
+    # 按空格拆分行数据
+    fields = split(line)
+    if length(fields) == 4
+        # 提取原子类型和坐标
+        atom_type = fields[1]
+        coordinates = parse.(Float64, fields[2:4])  # 转换为浮点数
+        push!(atom_data, coordinates/8.05916)
+    end
+end
+atomh2o=Vector{Atom}([])
+
+
 
 cpc=[1,1,1]
 para=getpara()
@@ -41,6 +66,14 @@ kb=para["kb"]
 h=para["h"]
 amuM=para["amuM"]
 invlt=inv(lattice_vectors)
+
+for i in 1:length(atom_data)
+    if mod(i,3)==1
+    push!(atomh2o,Atom(atom_data[i],15.9994*amuM))
+    else
+        push!(atomh2o,Atom(atom_data[i],1.008*amuM))
+    end
+end
 re=getparatip3p()
 rOH=re["rOH"]
 r1=rOH
@@ -56,6 +89,7 @@ structcell=filtercell(copycell(cell0,cpc...))
 
 mol=Molecule([[1,2,3]],[O,H1,H2])
 inicell,water=mapCell2Molecue(structcell::UnitCell,mol)
+inicell.atoms=deepcopy(atomh2o)
 natom=length(inicell.atoms)
 
 
@@ -69,22 +103,22 @@ prsequence=1
 pr=SpatialDistribution(inicell,200,200,1)
 
 
-projectname="ICE_111_40K"
+projectname="ICE_111_200K"
 ensemble="NVT"
-Ts=40.0 #K
+Ts=200.0 #K
 Ps=0.000101325/P00 #[p]
 dt=0.00025 #ps
-t0=1.0
+t0=0.01
 N=4
 Tb=Ts
 Pb=Ps
-maxstep=25000
-dumpsequence=100
+maxstep=45000
+dumpsequence=1
 dumpcellsequence=100
 printsequence=100
 beginsamplestep=5000
 trajsequence=4
-NVE2NVT=5000
+NVE2NVT=4800
 TQ=10
 TW=1000
 cutCoulomb=4.0
@@ -119,7 +153,7 @@ else
     println("Directory exists,new Directories $newpath created.\n")
     basepath=newpath
 end
-println("\nensemble:$ensemble\n")
+println("\nensemble:$ensemble,N=$N\n")
 ##logfile
 open("$basepath\\Config.txt", "w") do logfile
     write(logfile, "projectname=$projectname\n")
@@ -150,6 +184,7 @@ end
 open("$basepath\\Log.txt", "w") do io
     jldopen("$basepath\\DumpCell.JLD2","w") do iojl
 cell=deepcopy(inicell)
+
 
 if N==1
 if ensemble=="NVE"
@@ -214,9 +249,11 @@ end
 T=cell_temp(cell)
 Ek=cell_Ek(cell,interaction,Ts)
 Ep=cell_energy(cell,interaction)
+# Ek=0.0
+# Ep=0.0
 # println("step=$i",cell.atoms[1].position)
 if mod(i,dumpsequence)==0
-    writedlm(io, [i,Ek,Ep,Ek+Ep,T]')
+    writedlm(io, [i,Ek,Ep,Ek+Ep,T,barostat.V]')
 end
 if mod(i,printsequence)==0
     println("step: $i, Ek: $Ek Ep: $Ep,E:$(Ek+Ep),T:$T,Rt:$(thermostat.Pt),V:$(barostat.V)")
