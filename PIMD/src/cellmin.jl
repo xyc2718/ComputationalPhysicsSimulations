@@ -7,7 +7,7 @@ using StaticArrays
 # using Plots
 using LinearAlgebra
 # using Makie
-using GLMakie 
+using Makie 
 using LsqFit
 using ..Model
 

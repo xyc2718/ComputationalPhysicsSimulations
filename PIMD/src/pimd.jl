@@ -1,5 +1,5 @@
 """
-PIMD and TRPIMD simulation
+PIMD simulation
 pimdStep! for PIMD simulation
 pimdLangevinStep! for TRPIMD simulation with Langevin thermostat
 you need to map cell to BeadCell first with map2bead
@@ -401,6 +401,7 @@ end
 apply PBC on bead cell,this will depend on the center of the Ring
 """
 function apply_PBC_BDC!(bdc::BeadCell,interactions::AbstractInteraction)
+    #FIXME:暂时不支持更新boundvector
     if  length(bdc.cells[1].molecule.atoms)==0
         cpc=bdc.cells[1].copy
         pl,ql=get_bead_z0(bdc)

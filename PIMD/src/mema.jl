@@ -10,7 +10,7 @@ using StaticArrays
 
 using LinearAlgebra
 
-using GLMakie 
+using Makie 
 using LsqFit
 using ..Model
 using ..MD

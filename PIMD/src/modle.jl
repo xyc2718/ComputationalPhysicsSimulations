@@ -12,6 +12,7 @@ using IterTools
 export Atom, UnitCell, copycell,  Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,filtercell,cell_forceij!,cell_forcei!,force_tensor!,cell_temp,Ngradient0,getrij,is_diagonal_matrix,Embedding,dUdhij,randcell!,Force_Tensor,getrij0,update_rmat!,update_rmati!,update_fmat!,cell_forcei0,set_lattice_vector!,apply_PBC!,SW,Interactions,AbstractInteraction,Neighbor,AbstractCell,BeadCell,getpara,Angle,Bond,Molecule,Field,get_position,get_position0,get_velocity,get_natom,MutableField
 global const kb=8.617332385e-5 #eV/K
 
+# t=>ps,E=>eV,T=>K,L=>A
 function getpara()
     return Dict(
         "kb" => 8.617332385e-5,    # eV/K
@@ -24,6 +25,7 @@ function getpara()
     )
 end
 
+#lj
 # function getpara()
 #     return Dict(
 #         "kb" => 1.0,    
@@ -32,7 +34,8 @@ end
 #         "P00" => 1.0,     
 #         "h" => 1.0 ,    
 #         "K"=>1.0,      
-#         "a0"=>1.0 
+#         "a0"=>1.0,
+#         "t"=>0.0005052622965408168 #s/[t]
 #     )
 # end
 
@@ -54,21 +57,22 @@ mutable struct Atom
     cn::Int
     bound::Vector{Int}
     type::Int
+    boundvector::Vector{Int}
     function Atom(position::Vector{Float64},momentum::Vector{Float64},mass::Float64,cn::Int,bound::Vector{Int},type::Int)
-        new(position,momentum,mass,cn,bound,type)
+        new(position,momentum,mass,cn,bound,type,[0,0,0])
     end
     function Atom(position::Vector{Float64})
-        new(position,zeros(3),1.0,1,[0,0,0],1)
+        new(position,zeros(3),1.0,1,[0,0,0],1,[0,0,0])
     end
     function Atom(position::Vector{Float64},momentum::Vector{Float64})
-        new(position,momentum,1.0,1,[0,0,0],1)
+        new(position,momentum,1.0,1,[0,0,0],1,[0,0,0])
     end
 
     function Atom(position::Vector{Float64},mass::Float64)
-        new(position,zeros(3),mass,1,[0,0,0],1)
+        new(position,zeros(3),mass,1,[0,0,0],1,[0,0,0])
     end
     function Atom(position::Vector{Float64},momentum::Vector{Float64},mass::Float64)
-        new(position,momentum,mass,1,[0,0,0],1)
+        new(position,momentum,mass,1,[0,0,0],1,[0,0,0])
     end
 end
 
@@ -614,7 +618,7 @@ end
 :param cell: 晶胞
 """
 function cell_temp(cell::UnitCell)
-    kb=8.617332385e-5 #eV/K
+    kb=(getpara())["kb"]
     Ek=0.0
     for atom in cell.atoms
         p=atom.momentum
@@ -1029,16 +1033,27 @@ end
 
 function apply_PBC!(cell::UnitCell)
     if length(cell.molecule.atoms)==0
-    a,b,c=cell.copy
+    cp=cell.copy
+    # for i in eachindex(cell.atoms)
+    #         ri=cell.atoms[i].position
+    #         ri[1]=mod(ri[1]+a,2*a)-a
+    #         ri[2]=mod(ri[2]+b,2*b)-b
+    #         ri[3]=mod(ri[3]+c,2*c)-c
+    #         cell.atoms[i].position=ri
+    # end
     for i in eachindex(cell.atoms)
+        ri=cell.atoms[i].position
         for k in 1:3
-            ri=cell.atoms[i].position
-            ri[1]=mod(ri[1]+a,2*a)-a
-            ri[2]=mod(ri[2]+b,2*b)-b
-            ri[3]=mod(ri[3]+c,2*c)-c
-            cell.atoms[i].position=ri
+            if ri[k]>cp[k]
+                ri[k]-=2*cp[k]
+                cell.atoms[i].boundvector[k]+=1
+            end
+            if ri[k]<-cp[k]
+                ri[k]+=2*cp[k]
+                cell.atoms[i].boundvector[k]-=1
+            end
         end
-    
+
     end
     else
         a,b,c=cell.copy
@@ -1070,6 +1085,7 @@ function apply_PBC!(cell::UnitCell)
             r[2]=r[2]-iy*2*b
             r[3]=r[3]-iz*2*c
             cell.atoms[pb].position=r
+            cell.atoms[pb].boundvector.+=SVector{3,Int}(ix,iy,iz)
         end
     end
     end
@@ -1119,24 +1135,28 @@ function cell_temp(bdc::BeadCell)
     return temp/N
 end
 
-function get_position0(cell::UnitCell,i::Int)
-    return cell.atoms[i].position
+function get_position0(cell::UnitCell,i::Int;PBC::Bool=false)
+    if PBC
+        return cell.atoms[i].position
+    else
+        return cell.atoms[i].position+cell.atoms[i].boundvector.*(2*cell.copy)
+    end
 end
 
-function get_position0(bdc::BeadCell,i::Int)
+function get_position0(bdc::BeadCell,i::Int;PBC::Bool=false)
     rm=zeros(3)
     for j in 1:length(bdc.cells)
-        rm+=get_position0(bdc.cells[j],i)
+        rm+=get_position0(bdc.cells[j],i,PBC=PBC)
     end
     return rm./bdc.nbeads
 end
 
-function get_position(cell::UnitCell,i::Int)
-    return cell.lattice_vectors*get_position0(cell,i)
+function get_position(cell::UnitCell,i::Int;PBC::Bool=false)
+    return cell.lattice_vectors*get_position0(cell,i,PBC=PBC)
 end
 
-function get_position(bdc::BeadCell,i::Int)
-    return bdc.cells[1].lattice_vectors*get_position0(bdc,i)
+function get_position(bdc::BeadCell,i::Int;PBC::Bool=false)
+    return bdc.cells[1].lattice_vectors*get_position0(bdc,i,PBC=PBC)
 end
 
 function get_velocity(cell::UnitCell,i::Int)

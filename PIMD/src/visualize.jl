@@ -1,5 +1,5 @@
 module Visualize
-using GLMakie 
+using Makie 
 using ..Model
 using ..PIMD
 using LaTeXStrings
@@ -7,7 +7,16 @@ using LinearAlgebra
 using Printf
 using JSON
 using StaticArrays
-export visualize_unitcell_atoms,visualize_unitcell_atoms0,matrix_to_latex,read_json,read_config,visualize_beadcell,calculate_gr!,DataProcessor,RadialDistribution,Normalize_gr!,SpatialDistribution,calculate_pr!,Normalize_pr!,Trajectory,calculate_traj!,fix_traj!
+export visualize_unitcell_atoms,visualize_unitcell_atoms0,matrix_to_latex,read_json,read_config,visualize_beadcell,calculate_gr!,DataProcessor,RadialDistribution,Normalize_gr!,SpatialDistribution,calculate_pr!,Normalize_pr!,Trajectory,calculate_traj!,fix_traj!,clear_traj!
+
+try
+    using GLMakie
+catch
+    try
+        using CairoMakie
+    catch
+        println("Failed to load GLMakie or CairoMakie")
+end
 
 
 # 定义一个颜色映射函数
@@ -25,8 +34,8 @@ end
 :param linewith: 线宽
 """
 function visualize_unitcell_atoms(cell::UnitCell;markersize=10,veccolor=:blue,linewith=0.1,sizelist::Vector{Float64}=Vector{Float64}(undef,0),colorlist::Vector{Int}=Vector{Int}(undef,0))::Figure
-    fig =GLMakie.Figure(size = (800, 600))
-    ax = GLMakie.Axis3(fig[1, 1], title = "Visualization of Atoms in the Unit Cell", 
+    fig =Makie.Figure(size = (800, 600))
+    ax = Makie.Axis3(fig[1, 1], title = "Visualization of Atoms in the Unit Cell", 
                xlabel = "X", ylabel = "Y", zlabel = "Z")
     M=cell.lattice_vectors
     lsz=length(sizelist)
@@ -44,22 +53,22 @@ function visualize_unitcell_atoms(cell::UnitCell;markersize=10,veccolor=:blue,li
             cs=atom.cn
         end
         p=M*atom.position
-        GLMakie.scatter!(ax,p..., color = color_map(cs), markersize = ms)
+        Makie.scatter!(ax,p..., color = color_map(cs), markersize = ms)
     end
     
     # 绘制晶格向量（晶胞的边缘）
-    origin=GLMakie.Point3f0(0,0,0)
+    origin=Makie.Point3f0(0,0,0)
     for (k,vec) in enumerate(eachcol(cell.lattice_vectors))
-        vc=GLMakie.Point3f0(vec*cell.copy[k])
-        GLMakie.arrows!(ax, [origin], [origin + vec], color = veccolor, linewidth = linewith)
+        vc=Makie.Point3f0(vec*cell.copy[k])
+        Makie.arrows!(ax, [origin], [origin + vec], color = veccolor, linewidth = linewith)
     end
     rg1=maximum(cell.lattice_vectors*[cell.copy[1],0.0,0.0])
     rg2=maximum(cell.lattice_vectors*[0.0,cell.copy[2],0.0])
     rg3=maximum(cell.lattice_vectors*[0.0,0.0,cell.copy[3]])
     rgmin=minimum(cell.lattice_vectors*cell.copy)
-    GLMakie.xlims!(ax, -rg1, rg1)
-    GLMakie.ylims!(ax, -rg2, rg2)
-    GLMakie.zlims!(ax, -rg3, rg3)
+    Makie.xlims!(ax, -rg1, rg1)
+    Makie.ylims!(ax, -rg2, rg2)
+    Makie.zlims!(ax, -rg3, rg3)
     return fig
 end
 
@@ -70,8 +79,8 @@ end
 :param iftext:Bool 是否标记原子序号
 """
 function visualize_unitcell_atoms0(cell::UnitCell;markersize=10,iftext::Bool=false)::Figure
-    fig =GLMakie.Figure(size = (800, 600))
-    ax = GLMakie.Axis3(fig[1, 1], title = "Visualization of Atoms in the Unit Cell", 
+    fig =Makie.Figure(size = (800, 600))
+    ax = Makie.Axis3(fig[1, 1], title = "Visualization of Atoms in the Unit Cell", 
                xlabel = "X", ylabel = "Y", zlabel = "Z")
     M=cell.lattice_vectors
     for i in 1:length(cell.atoms)
@@ -84,7 +93,7 @@ function visualize_unitcell_atoms0(cell::UnitCell;markersize=10,iftext::Bool=fal
         for i in 1:length(cell.atoms)
             atom=cell.atoms[i]
             p=M*atom.position
-            GLMakie.text!(ax,string(i),position=Point3f(p))
+            Makie.text!(ax,string(i),position=Point3f(p))
         end
     end
 
@@ -137,8 +146,8 @@ function read_config(path, keyword)
 end
 
 function visualize_beadcell(bdc::BeadCell;markersize=10,veccolor=:blue,linewith=0.01,alpha=0.5)
-    fig =GLMakie.Figure(size = (800, 600))
-    ax = GLMakie.Axis3(fig[1, 1], title = "Visualization of Atoms in the Unit Cell", 
+    fig =Makie.Figure(size = (800, 600))
+    ax = Makie.Axis3(fig[1, 1], title = "Visualization of Atoms in the Unit Cell", 
     xlabel = "X", ylabel = "Y", zlabel = "Z")
     nbeads=bdc.nbeads
     for i in 1:nbeads
@@ -147,20 +156,20 @@ function visualize_beadcell(bdc::BeadCell;markersize=10,veccolor=:blue,linewith=
         for atom in cell.atoms
             p=M*atom.position
             cni=atom.cn
-            GLMakie.scatter!(ax,p..., color =:red, markersize = markersize,alpha=alpha)
+            Makie.scatter!(ax,p..., color =:red, markersize = markersize,alpha=alpha)
         end
-        origin=GLMakie.Point3f0(0,0,0)
+        origin=Makie.Point3f0(0,0,0)
         for (k,vec) in enumerate(eachcol(cell.lattice_vectors))
-            vc=GLMakie.Point3f0(vec*cell.copy[k])
-            GLMakie.arrows!(ax, [origin], [origin + vec], color = veccolor, linewidth = linewith)
+            vc=Makie.Point3f0(vec*cell.copy[k])
+            Makie.arrows!(ax, [origin], [origin + vec], color = veccolor, linewidth = linewith)
         end
         rg1=maximum(cell.lattice_vectors*[cell.copy[1],0.0,0.0])
         rg2=maximum(cell.lattice_vectors*[0.0,cell.copy[2],0.0])
         rg3=maximum(cell.lattice_vectors*[0.0,0.0,cell.copy[3]])
         rgmin=minimum(cell.lattice_vectors*cell.copy)
-        GLMakie.xlims!(ax, -rg1, rg1)
-        GLMakie.ylims!(ax, -rg2, rg2)
-        GLMakie.zlims!(ax, -rg3, rg3)
+        Makie.xlims!(ax, -rg1, rg1)
+        Makie.ylims!(ax, -rg2, rg2)
+        Makie.zlims!(ax, -rg3, rg3)
     end
     return fig
 
@@ -341,31 +350,47 @@ mutable struct Trajectory<:DataProcessor
     maxstep::Int
     dt::Float64
     t::Int
+    ti::Int
+    savetimes::Int
     function Trajectory(maxstep::Int,dt::Float64=1.0)
         rl=zeros(3,maxstep)
         vl=zeros(3,maxstep)
-        new("Trajectory",rl,vl,maxstep,dt,1)
+        new("Trajectory",rl,vl,maxstep,dt,1,1,0)
     end
     function Trajectory(beginstep::Int,endstep::Int,samplesequence::Int,dt::Float64=1.0)
         maxstep=Int(floor((endstep-beginstep)/samplesequence))+1
         rl=zeros(3,maxstep)
         vl=zeros(3,maxstep)
-        new("Trajectory",rl,vl,maxstep,dt*samplesequence,1)
+        new("Trajectory",rl,vl,maxstep,dt*samplesequence,1,1,0)
     end
 end
 
-function calculate_traj!(tr::Trajectory,cell::AbstractCell,i::Int)
+function calculate_traj!(tr::Trajectory,cell::AbstractCell,i::Int;PBC::Bool=false)
     # println(tr.t)
-    tr.rl[:,tr.t].=get_position(cell,i)
-    tr.vl[:,tr.t].=get_velocity(cell,i) 
+    tr.rl[:,tr.ti].=get_position(cell,i,PBC=PBC)
+    tr.vl[:,tr.ti].=get_velocity(cell,i) 
     tr.t+=1
+    tr.ti+=1
 end
 
+function clear_traj!(tr::Trajectory)
+    # println(tr.t)
+    tr.rl=zeros(3,tr.maxstep)
+    tr.vl=zeros(3,tr.maxstep)
+    tr.ti=1
+    tr.savetimes+=1
+end
 
-function fix_traj!(trl::Vector{Trajectory},cell::AbstractCell)
+function clear_traj!(trl::Vector{Trajectory})
+    for tr in trl
+        clear_traj!(tr)
+    end
+end
+
+function fix_traj!(trl::Vector{Trajectory},cell::AbstractCell;PBC::Bool=false)
     natom=get_natom(cell)
     for i in 1:natom
-        calculate_traj!(trl[i],cell,i)
+        calculate_traj!(trl[i],cell,i,PBC=PBC)
     end
     
 end

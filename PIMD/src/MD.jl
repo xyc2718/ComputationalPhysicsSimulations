@@ -11,23 +11,34 @@ LA_step!
 
 NVT ensemble:
     Nose-Hoover method:Intergrate by 3 order Runge Kuta
-NVE ensemble:Integrate by 3 order Runge Kuta 
+    Langevin method:Intergrate by Langevin Verlet step
+NVE ensemble:Integrate by 3 order Runge Kuta[3]
 
 Reference:
 [1]Jalkanen, J., & Müser, M. H. (2015). Systematic analysis and modification of embedded-atom potentials: Case study of copper. Modelling and Simulation in Materials Science and Engineering, 23(7), 074001. https://doi.org/10.1088/0965-0393/23/7/074001
 [2]Bereau, T. (2015). Multi-timestep Integrator for the Modified Andersen Barostat. Physics Procedia, 68, 7–15. https://doi.org/10.1016/j.phpro.2015.07.101
+[3]Ref: Bussi, G., & Parrinello, M. (2007). Accurate sampling using Langevin dynamics. Physical Review E, 75(5), 056707. https://doi.org/10.1103/PhysRevE.75.056707
 """
 module MD
 using Distributions
 using StaticArrays
 using LinearAlgebra
-using GLMakie 
 using ..Model
 using Base.Threads
 using JLD2
 
 
-export pressure_int,Thermostat,Barostat,Hz,RK3_step!,z2atoms,z2cell,cell2z,dUdV_default,update_cell!,initT!,initcell,dUdV_default,Nhcpisoint!,Andersen_Hoover_NPT_step!,LA_step!,minEenergyCell,provide_cell,LangevinVerlet_step!
+export pressure_int,Thermostat,Barostat,Hz,RK3_step!,z2atoms,z2cell,cell2z,dUdV_default,update_cell!,initT!,initcell,dUdV_default,Nhcpisoint!,Andersen_Hoover_NPT_step!,LA_step!,minEenergyCell,provide_cell,LangevinVerlet_step!,fix_dim!
+
+
+function fix_dim!(cell::UnitCell,dim::Vector{Int};fix_pos::Vector{Float64}=[0.0,0.0,0.0])
+    for d in dim
+        for atom in cell.atoms
+            atom.position[d]=0.0
+            atom.momentum[d]=0.0
+        end
+    end
+end
 
 
 """
@@ -365,6 +376,11 @@ function RK3_step!(z::Vector{Float64},dt::Float64,cell::UnitCell, interaction::A
     updatezr!(z,cell)
 end 
 
+
+"""
+Langevin Verlet步进
+Ref: Bussi, G., & Parrinello, M. (2007). Accurate sampling using Langevin dynamics. Physical Review E, 75(5), 056707. https://doi.org/10.1103/PhysRevE.75.056707
+"""
 function LangevinVerlet_step!(dt::Float64,cell::UnitCell, interaction::AbstractInteraction,Ts::Float64,t0::Float64)
     para=getpara()
     kb=para["kb"]
