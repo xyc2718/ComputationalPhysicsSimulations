@@ -12,12 +12,12 @@ LA_step!
 NVT ensemble:
     Nose-Hoover method:Intergrate by 3 order Runge Kuta
     Langevin method:Intergrate by Langevin Verlet step
-NVE ensemble:Integrate by 3 order Runge Kuta[3]
+NVE ensemble:Integrate by 3 order Runge Kuta
 
 Reference:
-[1]Jalkanen, J., & Müser, M. H. (2015). Systematic analysis and modification of embedded-atom potentials: Case study of copper. Modelling and Simulation in Materials Science and Engineering, 23(7), 074001. https://doi.org/10.1088/0965-0393/23/7/074001
+[1]Martyna, G. J., Tuckerman, M. E., Tobias, D. J., & Klein, M. L. (1996). Explicit reversible integrators for extended systems dynamics. Molecular Physics, 87(5), 1117–1157. https://doi.org/10.1080/00268979600100761
 [2]Bereau, T. (2015). Multi-timestep Integrator for the Modified Andersen Barostat. Physics Procedia, 68, 7–15. https://doi.org/10.1016/j.phpro.2015.07.101
-[3]Ref: Bussi, G., & Parrinello, M. (2007). Accurate sampling using Langevin dynamics. Physical Review E, 75(5), 056707. https://doi.org/10.1103/PhysRevE.75.056707
+[3]Bussi, G., & Parrinello, M. (2007). Accurate sampling using Langevin dynamics. Physical Review E, 75(5), 056707. https://doi.org/10.1103/PhysRevE.75.056707
 """
 module MD
 using Distributions
@@ -831,7 +831,7 @@ Andersen-Hoover NPT的演化算符,L_NHCP的tort分解为L_NHC(dt/2) L1 L2 L1 L_
 :param nresn: Int=3
 
 Reference:
-Jalkanen, J., & Müser, M. H. (2015). Systematic analysis and modification of embedded-atom potentials: Case study of copper. Modelling and Simulation in Materials Science and Engineering, 23(7), 074001. https://doi.org/10.1088/0965-0393/23/7/074001
+Martyna, G. J., Tuckerman, M. E., Tobias, D. J., & Klein, M. L. (1996). Explicit reversible integrators for extended systems dynamics. Molecular Physics, 87(5), 1117–1157. https://doi.org/10.1080/00268979600100761
 """
 function Andersen_Hoover_NPT_step!(cell::UnitCell,interaction::AbstractInteraction,thermostatchain::Vector{Thermostat},barostat::Barostat,dt::Float64;nresn::Int=3)
     dt2=dt/2
