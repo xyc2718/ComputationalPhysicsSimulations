@@ -16,6 +16,7 @@ catch
         using CairoMakie
     catch
         println("Failed to load GLMakie or CairoMakie")
+    end
 end
 
 
