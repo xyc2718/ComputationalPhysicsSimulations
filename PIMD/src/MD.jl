@@ -18,6 +18,7 @@ Reference:
 [1]Martyna, G. J., Tuckerman, M. E., Tobias, D. J., & Klein, M. L. (1996). Explicit reversible integrators for extended systems dynamics. Molecular Physics, 87(5), 1117–1157. https://doi.org/10.1080/00268979600100761
 [2]Bereau, T. (2015). Multi-timestep Integrator for the Modified Andersen Barostat. Physics Procedia, 68, 7–15. https://doi.org/10.1016/j.phpro.2015.07.101
 [3]Bussi, G., & Parrinello, M. (2007). Accurate sampling using Langevin dynamics. Physical Review E, 75(5), 056707. https://doi.org/10.1103/PhysRevE.75.056707
+[4]Garcia-Alvarez, D. (2011). A comparison of a few numerical schemes for the integration of stochastic differential equations in the Stratonovich interpretation (arXiv:1102.4401). arXiv. https://doi.org/10.48550/arXiv.1102.4401
 """
 module MD
 using Distributions
@@ -28,7 +29,7 @@ using Base.Threads
 using JLD2
 
 
-export pressure_int,Thermostat,Barostat,Hz,RK3_step!,z2atoms,z2cell,cell2z,dUdV_default,update_cell!,initT!,initcell,dUdV_default,Nhcpisoint!,Andersen_Hoover_NPT_step!,LA_step!,minEenergyCell,provide_cell,LangevinVerlet_step!,fix_dim!
+export pressure_int,Thermostat,Barostat,Hz,RK3_step!,z2atoms,z2cell,cell2z,dUdV_default,update_cell!,initT!,initcell,dUdV_default,Nhcpisoint!,Andersen_Hoover_NPT_step!,LA_step!,minEenergyCell,provide_cell,LangevinVerlet_step!,fix_dim!,LangevinDump_step!
 
 
 function fix_dim!(cell::UnitCell,dim::Vector{Int};fix_pos::Vector{Float64}=[0.0,0.0,0.0])
@@ -414,6 +415,43 @@ function LangevinVerlet_step!(dt::Float64,cell::UnitCell, interaction::AbstractI
 
 end
 
+
+"""
+过阻尼近似下的Langevin Step;采用Heun method
+:param dt: 步长
+:param cell: UnitCell
+:param interaction: Interaction
+:param Ts: 目标温度
+:param t0: 弛豫时间
+:param fixdim: 固定的维度
+ref:Garcia-Alvarez, D. (2011). A comparison of a few numerical schemes for the integration of stochastic differential equations in the Stratonovich interpretation (arXiv:1102.4401). arXiv. https://doi.org/10.48550/arXiv.1102.4401
+"""
+function LangevinDump_step!(dt::Float64,cell::UnitCell, interaction::AbstractInteraction,Ts::Float64,t0::Float64;fixdim::Vector{Int}=[])
+    para=getpara()
+    kb=para["kb"]
+    invlt=inv(cell.lattice_vectors)
+    fm=cell.fmat
+    xi=randn(3*length(cell.atoms))
+    for i in eachindex(cell.atoms)
+        atom=cell.atoms[i]
+        mi=atom.mass
+        atom.position+=invlt*(t0*fm[i]*dt/mi+sqrt(2*t0*kb*Ts*dt/mi)*xi[3*i-2:3*i])
+    end
+    fix_dim!(cell,fixdim)
+    update_rmat!(cell)
+    update_fmat!(cell,interaction)
+    for i in eachindex(cell.atoms)
+        atom=cell.atoms[i]
+        mi=atom.mass
+        fi=cell_forcei(cell,interaction,i)
+        atom.position+=invlt*(t0*dt/mi*(fm[i]+fi)/2+sqrt(2*t0*kb*Ts*dt/mi)*xi[3*i-2:3*i])
+        atom.momentum=t0*fi+xi[3*i-2:3*i]*sqrt(2*t0*kb*Ts*mi/dt)
+    end
+    fix_dim!(cell,fixdim)
+    apply_PBC!(cell)
+    update_rmat!(cell)
+    update_fmat!(cell,interaction)
+end
 
 
 
