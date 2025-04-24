@@ -404,7 +404,8 @@ struct Interaction{F1, F2, F3, F4} <: AbstractInteraction
 
     function Interaction(energy::F1, force::F2, cutoff::Float64, cutrg::Float64,embedding::Embedding,sw::SW) where {F1, F2}
         # 初始化截断势能和力的参数
-        Er2 = energy(cutoff - cutrg)
+        Ect=energy(cutoff)
+        Er2 = energy(cutoff - cutrg)-Ect
         dU2 = -(force(SVector{3}(cutoff - cutrg,0,0)))[1]
         bb=Vector{Float64}([0.0,0.0,dU2,Er2])
         x1=cutoff
@@ -417,7 +418,7 @@ struct Interaction{F1, F2, F3, F4} <: AbstractInteraction
             if nr > cutoff
                 return 0.0
             elseif nr < cutoff - cutrg
-                return energy(r)
+                return energy(r)-Ect
             else
                 return a*nr^3+b*nr^2+c*nr+d
             end

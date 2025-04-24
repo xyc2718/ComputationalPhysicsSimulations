@@ -14,9 +14,9 @@ using LinearAlgebra
 
 export TIP3P,getparatip3p,EOH,FOH,EHOH,FHOH,LJE,LJF,CoulombE,CoulombF,getparaqSPC
 
-function getparatip3p()
+function getparatip3p(;maxcutoff=10.0)
     kk=0.0433634
-    return Dict(
+    para=Dict(
         "kOH" => kk*450,    # eV/A
         "kHOH" => 55.0*kk,   # [m]/amu
         "rOH" => 0.9572,       # amu
@@ -30,12 +30,29 @@ function getparatip3p()
         "sigmaHH"=>0.4,
         "eO"=>-0.834,
         "eH"=>0.417,
-        "ctLJOO"=>4.0,
+        "ctLJOO"=>3.1507*3.0,
         "ctLJHH"=>3.0*0.4,
-        "ctLJOH"=>1.78*2.0,
-        "ctCoulomb"=>4.0, #A
-        "ct"=>4.0
+        "ctLJOH"=>1.78*3.0,
+        "ctCoulomb"=>6.0, #A
+        "ct"=>6.0
     )
+    if para["ctLJOO"]>maxcutoff
+        para["ctLJOO"]=maxcutoff
+    end
+    if para["ctLJHH"]>maxcutoff
+        para["ctLJHH"]=maxcutoff
+    end
+    if para["ctLJOH"]>maxcutoff
+        para["ctLJOH"]=maxcutoff
+    end
+    if para["ctCoulomb"]>maxcutoff
+        para["ctCoulomb"]=maxcutoff
+    end
+    if para["ct"]>maxcutoff
+        para["ct"]=maxcutoff
+    end
+    return para
+
     
 end
 
@@ -160,9 +177,9 @@ cutCoulomb is the cutoff of Coulomb Potential, if it is less than 0, the default
 
 Also can use other paraments by change keyword para
 """
-function TIP3P(water::Molecule;cutCoulomb::Float64=-1.0,para=nothing)
+function TIP3P(water::Molecule;cutCoulomb::Float64=-1.0,para=nothing,maxcutoff=10.0)
     if para===nothing
-        paratip3p=getparatip3p()
+        paratip3p=getparatip3p(maxcutoff=maxcutoff)
     else
         paratip3p=para
     end

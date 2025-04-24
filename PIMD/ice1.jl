@@ -4,7 +4,7 @@ using LinearAlgebra
 # using Makie
 using GLMakie 
 using LsqFit
-include("src\\Elastic.jl")
+include("src/Elastic.jl")
 using .Elastic
 using FFMPEG
 using DelimitedFiles
@@ -12,7 +12,7 @@ using Distributions
 using JLD2
 
 using Base.Threads
-
+ENV["GKSwstype"] = "100"
 println("Number of threads: ", Threads.nthreads())
 kb=8.617332385e-5 #eV/K
 amuM=1.03642701e-4 #[m]/amu
@@ -104,15 +104,15 @@ pr=SpatialDistribution(inicell,200,200,1)
 
 
 projectname="ICE_111_200K"
-ensemble="NVT"
+ensemble="NVT2NVE"
 Ts=200.0 #K
 Ps=0.000101325/P00 #[p]
 dt=0.00025 #ps
 t0=0.01
-N=4
+N=16
 Tb=Ts
 Pb=Ps
-maxstep=45000
+maxstep=15000
 dumpsequence=1
 dumpcellsequence=100
 printsequence=100
@@ -121,9 +121,9 @@ trajsequence=4
 NVE2NVT=4800
 TQ=10
 TW=1000
-cutCoulomb=4.0
+maxcutoff=6.0
 ifcheckConvergence=true
-interaction=TIP3P(water,cutCoulomb=cutCoulomb)
+interaction=TIP3P(water,maxcutoff=maxcutoff)
 traji=Trajectory(beginsamplestep,maxstep,trajsequence,dt)
 trajv=[deepcopy(traji) for i in 1:natom]
 initT!(Ts,inicell)
@@ -138,7 +138,7 @@ thermostat = Thermostat(Ts, Qs, 0.0, 0.0)
 barostat=Barostat(Ps,Ws,inicell.Volume,0.0)
 visize=ones(Float64,natom)
 
-basepath="output\\$projectname"
+basepath="output/$projectname"
 if !isdir(basepath)
     mkpath(basepath)
     println("Directory $basepath created.\n")
@@ -155,14 +155,15 @@ else
 end
 println("\nensemble:$ensemble,N=$N\n")
 ##logfile
-open("$basepath\\Config.txt", "w") do logfile
+open("$basepath/Config.txt", "w") do logfile
     write(logfile, "projectname=$projectname\n")
     write(logfile,"IntergrateMethod:RK3/PIMD,Interaction:TIP3P")
+    write(logfile, "lattice_vectors=$(inicell.lattice_vectors)\n")
     write(logfile, "ensemble:$ensemble\n")           
     write(logfile, "$natom  atoms\n")
     write(logfile, "N:$N\n")    
     write(logfile, "t0:$t0\n")   
-    write(logfile, "cutCoulomb=$cutCoulomb\n")
+    write(logfile, "maxcutoff=$maxcutoff\n")
     write(logfile, "Ts=$Ts\n")
     write(logfile, "Ps=$Ps\n")
     write(logfile, "Tb=$Tb\n")
@@ -179,36 +180,32 @@ open("$basepath\\Config.txt", "w") do logfile
     write(logfile, "printsequence=$printsequence\n")
     write(logfile, "beginsamplestep=$beginsamplestep\n")
     write(logfile, "trajsequence=$trajsequence\n")
+    
 end
 
-open("$basepath\\Log.txt", "w") do io
-    jldopen("$basepath\\DumpCell.JLD2","w") do iojl
+open("$basepath/Log.txt", "w") do io
+    jldopen("$basepath/DumpCell.JLD2","w") do iojl
 cell=deepcopy(inicell)
 
 
 if N==1
-if ensemble=="NVE"
-    z=cell2z(cell)
-elseif ensemble=="NVT"
-    z=cell2z(cell,thermostat)
-elseif ensemble=="NPT"
-    z=cell2z(cell,thermostat,barostat)
-elseif ensemble=="NVTLangevin"
-    z=cell2z(cell)
-elseif ensemble=="NVT2NVE"
-    z=cell2z(cell,thermostat)
-else
-    throw(ArgumentError("ensemble not found"))
-end
-update_rmat!(cell)
-update_fmat!(cell,interaction)
-elseif (N>=4)&&(mod(N,2)==0)
-    if ensemble!="NVT"
-        println("Only NVT ensemble is supported for PIMD")
+    if ensemble=="NVE"
+        z=cell2z(cell)
+    elseif ensemble=="NVT"
+        z=cell2z(cell,thermostat)
+    elseif ensemble=="NPT"
+        z=cell2z(cell,thermostat,barostat)
+    elseif ensemble=="NVTLangevin"
+        z=cell2z(cell)
+    elseif ensemble=="NVT2NVE"
+        z=cell2z(cell,thermostat)
+    else
+        throw(ArgumentError("ensemble not found"))
     end
+    update_rmat!(cell)
+    update_fmat!(cell,interaction)
+elseif (N>=4)&&(mod(N,2)==0)
     cell=map2bead(inicell,interaction,N,Ts,r=0.0)
-else
-    throw("Wrong Beads Number")
 end
 
 cgflag=true
@@ -242,8 +239,27 @@ if N==1
     elseif ensemble=="NVTLangevin"
         LangevinVerlet_step!(dt,cell,interaction,Ts,t0)
     end
-elseif (N>=4)&&(mod(N,2)==0)
+elseif (N>=4)&&(mod(N,2)==0) && ensemble=="NVT"
     pimdLangevinStep!(cell,dt,Ts,interaction,t0=t0)
+elseif (N>=4)&&(mod(N,2)==0) && ensemble=="NVE"
+    pimdStep!(cell,dt,Ts,interaction)
+elseif (N>=4)&&(mod(N,2)==0) && ensemble=="NVT2NVE"
+    if i<NVE2NVT
+        pimdLangevinStep!(cell,dt,Ts,interaction,t0=t0)
+    else
+        if cgflag
+            T=cell_temp(cell)
+            if (abs(T-Ts*N)<10.0)
+                println("\nchange NVT to NVE at step $i,T=$T\n")
+                pimdStep!(cell,dt,Ts,interaction)
+                cgflag=false
+            else
+                pimdLangevinStep!(cell,dt,Ts,interaction,t0=t0)
+            end
+        else
+            pimdStep!(cell,dt,Ts,interaction)
+        end
+    end
 end
 # pint=pressure_int(cell,interaction)
 T=cell_temp(cell)
@@ -286,15 +302,15 @@ end
 end
 end
 
-jldopen("$basepath\\tr.JLD2","w") do jltr
+jldopen("$basepath/tr.JLD2","w") do jltr
     write(jltr,"tr",trajv)
 end
 
 if calculate_gr
     Normalize_gr!(gr)
     p=Plots.plot(gr.rm,gr.ngr,label="g(r)",xlabel="r",ylabel="g(r)",title="g(r) of N=$N,T=$Ts",lw=2,dpi=600)
-    Plots.savefig(p,"$basepath\\gr.png")
-    jldopen("$basepath\\DumpCellgr.JLD2","w") do jlgr
+    Plots.savefig(p,"$basepath/gr.png")
+    jldopen("$basepath/DumpCellgr.JLD2","w") do jlgr
         write(jlgr,"gr",gr)
     end
 
@@ -304,8 +320,8 @@ end
 if calculate_pr
     Normalize_pr!(pr)
     fig=Plots.heatmap(pr.xl.*lattice_constant,pr.yl.*lattice_constant,transpose(pr.npr[:,:,1]),color=:viridis,title="Spatial Distribution Beads=$N,T=$Ts K",xlabel="x/A",ylabel="y/A")
-    savefig(fig,"$basepath\\SpatialDistribution.png")
-    jldopen("$basepath\\SpatialDistribution.JLD2","w") do iojl
+    savefig(fig,"$basepath/SpatialDistribution.png")
+    jldopen("$basepath/SpatialDistribution.JLD2","w") do iojl
         write(iojl,"pr",pr)
     end
 end
