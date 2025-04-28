@@ -51,4 +51,15 @@ for mod in modules
         end
     end
 end
+function set_unit(unit="lj")
+    Model.UNIT = unit
+    try
+        para=getpara()
+        @info "unit: $unit, \npara:$para"
+    catch
+        throw(ArgumentError("Error: Unknown unit system $UNIT"))
+    end
+end
+
+export set_unit
 end

@@ -10,34 +10,43 @@ using LinearAlgebra
 using Base.Threads
 using IterTools
 export Atom, UnitCell, copycell,  Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,filtercell,cell_forceij!,cell_forcei!,force_tensor!,cell_temp,Ngradient0,getrij,is_diagonal_matrix,Embedding,dUdhij,randcell!,Force_Tensor,getrij0,update_rmat!,update_rmati!,update_fmat!,cell_forcei0,set_lattice_vector!,apply_PBC!,SW,Interactions,AbstractInteraction,Neighbor,AbstractCell,BeadCell,getpara,Angle,Bond,Molecule,Field,get_position,get_position0,get_velocity,get_natom,MutableField
-global const kb=8.617332385e-5 #eV/K
 
-# t=>ps,E=>eV,T=>K,L=>A
-function getpara()
-    return Dict(
-        "kb" => 8.617332385e-5,    # eV/K
-        "amuM" => 1.03642701e-4,   # [m]/amu
-        "MAl" => 26.9815385,       # amu
-        "P00" => 160.2176565,      # GPa/[p]
-        "h" => 6.582119281e-4 ,     # eV*ps
-        "K"=>14.39964485,       #eV*A/e^2
-        "a0"=>0.529177210903 #A/au
-    )
+UNIT="metal"
+function _getpara(UNIT="lj")
+    #t=>ps,E=>eV,T=>K,L=>A
+    if UNIT=="metal"
+        return Dict(
+            "kb" => 8.617332385e-5,    # eV/K
+            "amuM" => 1.03642701e-4,   # [m]/amu
+            "MAl" => 26.9815385,       # amu
+            "P00" => 160.2176565,      # GPa/[p]
+            "h" => 6.582119281e-4 ,     # eV*ps
+            "K"=>14.39964485,       #eV*A/e^2
+            "a0"=>0.529177210903 #A/au
+        )
+    elseif UNIT=="lj"
+        #lj
+        return Dict(
+            "kb" => 1.0,    
+            "amuM" => 1.0,   
+            "MAl" => 1.0,      
+            "P00" => 1.0,     
+            "h" => 1.0 ,    
+            "K"=>1.0,      
+            "a0"=>1.0,
+            "t"=>0.0005052622965408168 #s/[t]
+        )
+    else
+        throw("Error: Unknown unit system $UNIT")
+    end
 end
 
-#lj
-# function getpara()
-#     return Dict(
-#         "kb" => 1.0,    
-#         "amuM" => 1.0,   
-#         "MAl" => 1.0,      
-#         "P00" => 1.0,     
-#         "h" => 1.0 ,    
-#         "K"=>1.0,      
-#         "a0"=>1.0,
-#         "t"=>0.0005052622965408168 #s/[t]
-#     )
-# end
+function getpara()
+    global UNIT
+    return _getpara(UNIT)
+end
+
+
 
 abstract type AbstractInteraction end
 
