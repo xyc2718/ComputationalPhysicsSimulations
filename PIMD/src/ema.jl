@@ -8,9 +8,9 @@ using ..Model
 using LinearAlgebra
 using StaticArrays
 using Base.Threads
-export EMACu_phi,EMACu_psi,EMACu_Phi,EMACu_phi_gradient,EMACu_psi_gradient,EMACu_Phi_gradient,EMACu_rhoi,embedding_energyCu,embedding_forceCuij,embedding_forceCui,EMAAl2_Phi,EMAAl2_phi,EMAAl2_psi,EMAAl2_phi_gradient,EMAAl2_psi_gradient,EMAAl2_Phi_gradient,EMAAl2_rhoi,embedding_energyAl2,embedding_forceAl2ij,embedding_forceAl2i,EMAAl1_Phi,EMAAl1_phi,EMAAl1_psi,EMAAl1_phi_gradient,EMAAl1_psi_gradient,EMAAl1_Phi_gradient,EMAAl1_rhoi,embedding_energyAl1,embedding_forceAl1ij,embedding_forceAl1i
+export EMACu_phi,EMACu_psi,EMACu_Phi,EMACu_phi_gradient,EMACu_psi_gradient,EMACu_Phi_gradient,EMACu_rhoi,embedding_energyCu,embedding_forceCuij,embedding_forceCui,EMAAl2_Phi,EMAAl2_phi,EMAAl2_psi,EMAAl2_phi_gradient,EMAAl2_psi_gradient,EMAAl2_Phi_gradient,EMAAl2_rhoi,embedding_energyAl2,embedding_forceAl2ij,embedding_forceAl2i,EMAAl1_Phi,EMAAl1_phi,EMAAl1_psi,EMAAl1_phi_gradient,EMAAl1_psi_gradient,EMAAl1_Phi_gradient,EMAAl1_rhoi,embedding_energyAl1,embedding_forceAl1ij,embedding_forceAl1i,EMA_Al1,EMA_Cu,EMA_Al2
 # EMACu_phi(r) 函数
-function EMACu_phi(r)
+function EMACu_phi(r::Float64)
     phi = 0.0
     if r <= 1.8
         phi += exp(11.026565103477 - 10.167211017722 * r + 6.0017702915006 * r^2 - 1.9598299733506 * r^3)
@@ -28,7 +28,7 @@ function EMACu_phi(r)
 end
 
 # EMACu_psi(r) 函数
-function EMACu_psi(r)
+function EMACu_psi(r::Float64)
     psi = 0.0
     if 0 <= r <= 2.4
         psi += 0.0199999875362 * (2.4 - r)^4
@@ -46,7 +46,7 @@ function EMACu_psi(r)
 end
 
 # EMACu_Phi(rho) 函数
-function EMACu_Phi(rho)
+function EMACu_Phi(rho::Float64)
     Phi = 0.0
     if rho >= 0
         Phi += -rho^0.5
@@ -195,7 +195,7 @@ function embedding_forceCuij(cell::UnitCell,i::Int,j::Int;ct::Float64=6.0)::SVec
     return Fij
 end
 
-function embedding_forceCui(cell,i::Int)::SVector{3,Float64}
+function embedding_forceCui(cell::UnitCell,i::Int)::SVector{3,Float64}
     natom=length(cell.atoms)
 
     Fi=SVector{3,Float64}(0.0,0.0,0.0)
@@ -689,7 +689,7 @@ function embedding_forceAl1ij(cell::UnitCell,i::Int,j::Int;ct::Float64=6.0)::SVe
     return Fij
 end
 
-function embedding_forceAl1i(cell,i::Int)::SVector{3,Float64}
+function embedding_forceAl1i(cell::UnitCell,i::Int)::SVector{3,Float64}
     natom=length(cell.atoms)
 
     Fi=SVector{3,Float64}(0.0, 0.0, 0.0)
@@ -701,5 +701,25 @@ function embedding_forceAl1i(cell,i::Int)::SVector{3,Float64}
     return Fi 
 end
 
+function EMA_Al1(cutoff::Float64=6.5)::Interaction    
+    embeddingAl1=Embedding(embedding_energyAl1, embedding_forceAl1i)
+    interaction=Interaction(EMAAl1_phi, EMAAl1_phi_gradient, cutoff, 0.1, embeddingAl1)
+    @info "initializing Interaction EMA_Al1 with cutoff $cutoff"
+    return interaction
+end
+
+function EMA_Al2(cutoff::Float64=6.5)::Interaction    
+    embeddingAl2=Embedding(embedding_energyAl2, embedding_forceAl2i)
+    interaction=Interaction(EMAAl2_phi, EMAAl2_phi_gradient, cutoff, 0.1, embeddingAl2)
+    @info "initializing Interaction EMA_Al2 with cutoff $cutoff"
+    return interaction
+end
+
+function EMA_Cu(cutoff::Float64=6.5)::Interaction    
+    embeddingCu=Embedding(embedding_energyCu, embedding_forceCui)
+    interaction=Interaction(EMACu_phi, EMACu_phi_gradient, cutoff, 0.1, embeddingCu)
+    @info "initializing Interaction EMA_Al2 with cutoff $cutoff"
+    return interaction
+end
 
 end

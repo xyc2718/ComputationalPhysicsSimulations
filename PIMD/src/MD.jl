@@ -29,7 +29,7 @@ using Base.Threads
 using JLD2
 
 
-export pressure_int,Thermostat,Barostat,Hz,RK3_step!,z2atoms,z2cell,cell2z,dUdV_default,update_cell!,initT!,initcell,dUdV_default,Nhcpisoint!,Andersen_Hoover_NPT_step!,LA_step!,minEenergyCell,provide_cell,LangevinVerlet_step!,fix_dim!,LangevinDump_step!
+export pressure_int,Thermostat,Barostat,Hz,RK3_step!,z2atoms,z2cell,cell2z,dUdV_default,update_cell!,initT!,initcell,dUdV_default,Nhcpisoint!,Andersen_Hoover_NPT_step!,LA_step!,minEenergyCell,provide_cell,LangevinVerlet_step!,fix_dim!,LangevinDump_step!,update_interaction!
 
 
 function fix_dim!(cell::UnitCell,dim::Vector{Int};fix_pos::Vector{Float64}=[0.0,0.0,0.0])
@@ -382,7 +382,7 @@ end
 Langevin Verlet步进
 Ref: Bussi, G., & Parrinello, M. (2007). Accurate sampling using Langevin dynamics. Physical Review E, 75(5), 056707. https://doi.org/10.1103/PhysRevE.75.056707
 """
-function LangevinVerlet_step!(dt::Float64,cell::UnitCell, interaction::AbstractInteraction,Ts::Float64,t0::Float64)
+function LangevinVerlet_step!(dt::Float64,cell::UnitCell, interaction::AbstractInteraction,Ts::Float64,t0::Float64;ifupdateInteraction::Bool=false)
     para=getpara()
     kb=para["kb"]
     invlt=inv(cell.lattice_vectors)
@@ -400,6 +400,7 @@ function LangevinVerlet_step!(dt::Float64,cell::UnitCell, interaction::AbstractI
         atom.momentum+=fi*dt/2
     end
     apply_PBC!(cell)
+    update_interaction!(interaction,dt)
     update_rmat!(cell)
     update_fmat!(cell,interaction)
 
@@ -412,8 +413,23 @@ function LangevinVerlet_step!(dt::Float64,cell::UnitCell, interaction::AbstractI
         mi=atom.mass
         atom.momentum=c1*atom.momentum+c2*randn(3).*sqrt(mi*kb*Ts)
     end
+    if ifupdateInteraction
+        update_interaction!(interaction,-dt)
+    end
 
 end
+
+function update_interaction!(interaction::MutableField,dt::Float64)
+    interaction.t+=dt
+end
+function update_interaction!(interaction::Union{Interaction,Field,Bond,Angle},dt::Float64)
+end
+function update_interaction!(interaction::Interactions,dt::Float64)
+    for i in 1:length(interaction.interactions)
+        update_interaction!(interaction.interactions[i],dt)
+    end
+end
+
 
 
 """
@@ -426,31 +442,38 @@ end
 :param fixdim: 固定的维度
 ref:Garcia-Alvarez, D. (2011). A comparison of a few numerical schemes for the integration of stochastic differential equations in the Stratonovich interpretation (arXiv:1102.4401). arXiv. https://doi.org/10.48550/arXiv.1102.4401
 """
-function LangevinDump_step!(dt::Float64,cell::UnitCell, interaction::AbstractInteraction,Ts::Float64,t0::Float64;fixdim::Vector{Int}=[])
+function LangevinDump_step!(dt::Float64,cell::UnitCell, interaction::AbstractInteraction,Ts::Float64,t0::Float64;fixdim::Vector{Int}=[],ifupdateInteraction::Bool=false)
     para=getpara()
     kb=para["kb"]
     invlt=inv(cell.lattice_vectors)
-    fm=cell.fmat
+    fm=deepcopy(cell.fmat)
+    rm=zeros(3*length(cell.atoms))
     xi=randn(3*length(cell.atoms))
-    for i in eachindex(cell.atoms)
+    @threads for i in eachindex(cell.atoms)
         atom=cell.atoms[i]
         mi=atom.mass
+        rm[3*i-2:3*i].=atom.position
         atom.position+=invlt*(t0*fm[i]*dt/mi+sqrt(2*t0*kb*Ts*dt/mi)*xi[3*i-2:3*i])
     end
     fix_dim!(cell,fixdim)
+    update_interaction!(interaction,dt)
+    # apply_PBC!(cell)
     update_rmat!(cell)
     update_fmat!(cell,interaction)
-    for i in eachindex(cell.atoms)
+    @threads for i in eachindex(cell.atoms)
         atom=cell.atoms[i]
         mi=atom.mass
         fi=cell_forcei(cell,interaction,i)
-        atom.position+=invlt*(t0*dt/mi*(fm[i]+fi)/2+sqrt(2*t0*kb*Ts*dt/mi)*xi[3*i-2:3*i])
+        atom.position=rm[3*i-2:3*i]+invlt*(t0*dt/mi*(fm[i]+fi)/2+sqrt(2*t0*kb*Ts*dt/mi)*xi[3*i-2:3*i])
         atom.momentum=t0*fi+xi[3*i-2:3*i]*sqrt(2*t0*kb*Ts*mi/dt)
     end
     fix_dim!(cell,fixdim)
     apply_PBC!(cell)
     update_rmat!(cell)
     update_fmat!(cell,interaction)
+    if !ifupdateInteraction
+        update_interaction!(interaction,-dt)
+    end
 end
 
 

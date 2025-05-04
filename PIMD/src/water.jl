@@ -321,7 +321,7 @@ function TIP3P(water::Molecule;cutCoulomb::Float64=-1.0,para=nothing,maxcutoff=1
     # println(interCoulombOO.cutoff)
     # println(NeighborCoulombOO)
     # println(NeighborLJHH)
-    println("Initialized with TIP3P Interactions with cutoff $cutCoulomb,\n parameters:$paratip3p")
+    @info "Initialized with TIP3P Interactions with Coulomb cutoff $cutCoulomb,maxcutoff $maxcutoff,\n parameters:$paratip3p"
     return interactions
 end
 
