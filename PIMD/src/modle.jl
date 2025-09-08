@@ -11,7 +11,7 @@ using Base.Threads
 using IterTools
 export Atom, UnitCell, copycell,  Interaction, cell_energyij, cell_energy,cell_energyij0, cell_energy0, cell_forceij, cell_forcei, force_tensor,filtercell,cell_forceij!,cell_forcei!,force_tensor!,cell_temp,Ngradient0,getrij,is_diagonal_matrix,Embedding,dUdhij,randcell!,Force_Tensor,getrij0,update_rmat!,update_rmati!,update_fmat!,cell_forcei0,set_lattice_vector!,apply_PBC!,SW,Interactions,AbstractInteraction,Neighbor,AbstractCell,BeadCell,getpara,Angle,Bond,Molecule,Field,get_position,get_position0,get_velocity,get_natom,MutableField
 
-UNIT="metal"
+const UNIT="metal"
 function _getpara(UNIT="lj")
     #t=>ps,E=>eV,T=>K,L=>A
     if UNIT=="metal"
